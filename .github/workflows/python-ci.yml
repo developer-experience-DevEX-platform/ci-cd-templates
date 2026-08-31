@@ -1,1 +1,229 @@
-# Placeholder for the reusable Python CI workflow.
+name: Python CI
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Service source directory
+        required: false
+        type: string
+        default: .
+      dockerfile_path:
+        description: Path to the service Dockerfile
+        required: false
+        type: string
+        default: ./Dockerfile
+      python_version:
+        description: Python version
+        required: false
+        type: string
+        default: "3.13"
+      install_command:
+        description: Dependency installation command
+        required: false
+        type: string
+        default: pip install -r requirements.txt
+      format_command:
+        description: Formatting validation command
+        required: false
+        type: string
+        default: black --check .
+      lint_command:
+        description: Lint command
+        required: false
+        type: string
+        default: ruff check .
+      unit_test_command:
+        description: Unit test command
+        required: false
+        type: string
+        default: pytest -m "not integration" --cov=. --cov-report=term-missing
+      has_integration_tests:
+        description: Whether integration tests are implemented
+        required: false
+        type: boolean
+        default: false
+      integration_test_command:
+        description: Integration test command
+        required: false
+        type: string
+        default: pytest -m integration
+      integration_test_install_command:
+        description: Dependency installation command for integration tests. Defaults to install_command.
+        required: false
+        type: string
+        default: ''
+      integration_test_working_directory:
+        description: Directory where integration tests run. Defaults to working_directory.
+        required: false
+        type: string
+        default: ''
+      integration_test_vars:
+        description: JSON object of non-secret environment variables required by integration tests.
+        required: false
+        type: string
+        default: '{}'
+
+permissions:
+  contents: read
+
+jobs:
+  dockerfile-lint:
+    name: Dockerfile Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint
+        env:
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+        run: docker run --rm -i hadolint/hadolint:v2.15.1 < "$DOCKERFILE_PATH"
+
+  formatting:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+          cache-dependency-path: ${{ inputs.working_directory }}/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.install_command }}
+
+      - name: Check formatting
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.format_command }}
+
+  linting:
+    name: Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+          cache-dependency-path: ${{ inputs.working_directory }}/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.install_command }}
+
+      - name: Run linting
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.lint_command }}
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+          cache-dependency-path: ${{ inputs.working_directory }}/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.install_command }}
+
+      - name: Run unit tests
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.unit_test_command }}
+
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy dependency scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working_directory }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+
+  sast:
+    name: SAST
+    if: github.event_name == 'pull_request'
+    needs:
+      - dockerfile-lint
+      - formatting
+      - linting
+      - unit-tests
+      - dependency-scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@v4
+
+  integration-tests:
+    name: Integration Tests
+    if: github.event_name == 'pull_request' && inputs.has_integration_tests == true
+    needs:
+      - dockerfile-lint
+      - formatting
+      - linting
+      - unit-tests
+      - dependency-scan
+      - sast
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+          cache-dependency-path: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}/requirements.txt
+
+      - name: Install integration test dependencies
+        working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
+        run: ${{ inputs.integration_test_install_command != '' && inputs.integration_test_install_command || inputs.install_command }}
+
+      - name: Configure integration test variables
+        if: inputs.integration_test_vars != '{}'
+        env:
+          INTEGRATION_TEST_VARS: ${{ inputs.integration_test_vars }}
+        shell: bash
+        run: |
+          echo "$INTEGRATION_TEST_VARS" |
+            jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+
+      - name: Run integration tests
+        working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
+        run: ${{ inputs.integration_test_command }}
