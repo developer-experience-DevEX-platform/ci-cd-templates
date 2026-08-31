@@ -48,6 +48,16 @@ on:
         required: false
         type: string
         default: npm run test:integration
+      integration_test_working_directory:
+        description: Directory where integration tests run. Defaults to working_directory.
+        required: false
+        type: string
+        default: ''
+      integration_test_vars:
+        description: JSON object of non-secret environment variables required by integration tests.
+        required: false
+        type: string
+        default: '{}'
 
 permissions:
   contents: read
@@ -151,6 +161,12 @@ jobs:
   sast:
     name: SAST
     if: github.event_name == 'pull_request'
+    needs:
+      - dockerfile-lint
+      - formatting
+      - linting
+      - unit-tests
+      - dependency-scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -194,6 +210,15 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: ${{ inputs.install_command }}
 
+      - name: Configure integration test variables
+        if: inputs.integration_test_vars != '{}'
+        env:
+          INTEGRATION_TEST_VARS: ${{ inputs.integration_test_vars }}
+        shell: bash
+        run: |
+          echo "$INTEGRATION_TEST_VARS" |
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+
       - name: Run integration tests
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
         run: ${{ inputs.integration_test_command }}
