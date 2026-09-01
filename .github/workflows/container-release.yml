@@ -1,0 +1,281 @@
+name: Container Release
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Directory containing the application and Docker build context.
+        required: false
+        type: string
+        default: .
+      dockerfile_path:
+        description: Dockerfile path relative to working_directory.
+        required: false
+        type: string
+        default: Dockerfile
+      image_name:
+        description: Logical image name used when building the container.
+        required: true
+        type: string
+      image_tag:
+        description: Immutable image tag. Callers should normally pass the Git commit SHA.
+        required: true
+        type: string
+      image_artifact_retention_days:
+        description: Number of days to retain the temporary container image artifact.
+        required: false
+        type: number
+        default: 1
+      security_artifact_retention_days:
+        description: Number of days to retain security reports.
+        required: false
+        type: number
+        default: 30
+      sbom_artifact_retention_days:
+        description: Number of days to retain the SBOM.
+        required: false
+        type: number
+        default: 90
+
+permissions:
+  contents: read
+
+jobs:
+  build-image:
+    name: Build Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build container image
+        env:
+          BUILD_CONTEXT: ${{ inputs.working_directory }}
+          DOCKERFILE: ${{ inputs.working_directory }}/${{ inputs.dockerfile_path }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: docker build --file "$DOCKERFILE" --tag "$IMAGE_NAME:$IMAGE_TAG" "$BUILD_CONTEXT"
+
+      - name: Save container image
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: docker save --output image.tar "$IMAGE_NAME:$IMAGE_TAG"
+
+      - name: Upload container image
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-image
+          path: image.tar
+          retention-days: ${{ inputs.image_artifact_retention_days }}
+
+  vulnerability-scan:
+    name: Trivy Vulnerability Scan
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download container image
+        uses: actions/download-artifact@v4
+        with:
+          name: container-image
+
+      - name: Scan container image with Trivy
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: image
+          input: image.tar
+          scanners: vuln
+          format: json
+          output: trivy-image-report.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Upload Trivy image report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-report
+          path: trivy-image-report.json
+          retention-days: ${{ inputs.security_artifact_retention_days }}
+
+  container-compliance:
+    name: Container Compliance
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download container image
+        uses: actions/download-artifact@v4
+        with:
+          name: container-image
+
+      - name: Scan container image with Dockle
+        run: >-
+          docker run --rm
+          --volume "$PWD:/work"
+          --workdir /work
+          goodwithtech/dockle:v0.4.15
+          --input image.tar
+          --format json
+          --output dockle-report.json
+          --exit-code 1
+          --exit-level warn
+
+      - name: Upload Dockle report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dockle-report
+          path: dockle-report.json
+          retention-days: ${{ inputs.security_artifact_retention_days }}
+
+  sbom:
+    name: Generate SBOM
+    needs:
+      - vulnerability-scan
+      - container-compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download container image
+        uses: actions/download-artifact@v4
+        with:
+          name: container-image
+
+      - name: Generate CycloneDX SBOM
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: image
+          input: image.tar
+          format: cyclonedx
+          output: sbom.cdx.json
+
+      - name: Upload container SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-sbom
+          path: sbom.cdx.json
+          retention-days: ${{ inputs.sbom_artifact_retention_days }}
+
+  publish-ecr:
+    name: Publish to ECR
+    needs:
+      - sbom
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download container image
+        uses: actions/download-artifact@v4
+        with:
+          name: container-image
+
+      - name: Validate platform configuration
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_RELEASE_ROLE_ARN: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+        shell: bash
+        run: |
+          missing_configuration=false
+
+          for variable_name in AWS_REGION AWS_RELEASE_ROLE_ARN ECR_REPOSITORY; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "::error::Missing platform configuration: $variable_name"
+              missing_configuration=true
+            fi
+          done
+
+          if [[ "$missing_configuration" == "true" ]]; then
+            echo "This repository has not been fully provisioned for container releases. Platform configuration is normally created automatically by Backstage."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: devex-container-release-${{ github.run_id }}
+
+      - name: Validate ECR repository
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+        shell: bash
+        run: |
+          if ! aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "::error::ECR repository '$ECR_REPOSITORY' was not found in '$AWS_REGION'. Platform provisioning is incomplete."
+            exit 1
+          fi
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Load scanned container image
+        run: docker load --input image.tar
+
+      - name: Create ECR image reference
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        shell: bash
+        run: |
+          echo "SOURCE_IMAGE=$IMAGE_NAME:$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "ECR_IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_ENV"
+
+      - name: Verify immutable image tag
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        shell: bash
+        run: |
+          set +e
+          describe_result=$(aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" 2>&1)
+          describe_status=$?
+          set -e
+
+          if [[ $describe_status -eq 0 ]]; then
+            echo "::error::Image tag already exists in ECR. Release tags are immutable."
+            exit 1
+          fi
+
+          if [[ "$describe_result" != *"ImageNotFoundException"* ]]; then
+            echo "::error::Unable to verify whether the image tag already exists in ECR."
+            exit 1
+          fi
+
+      - name: Tag container image for ECR
+        run: docker tag "$SOURCE_IMAGE" "$ECR_IMAGE"
+
+      - name: Push container image to ECR
+        run: docker push "$ECR_IMAGE"
+
+      - name: Write container release summary
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        shell: bash
+        run: |
+          {
+            echo "# Container Release"
+            echo
+            echo "**Image:**"
+            echo "$ECR_IMAGE"
+            echo
+            echo "**Image Tag:**"
+            echo "$IMAGE_TAG"
+            echo
+            echo "**Security Gates:**"
+            echo "- Trivy: Passed"
+            echo "- Dockle: Passed"
+            echo "- SBOM: Generated"
+          } >> "$GITHUB_STEP_SUMMARY"
