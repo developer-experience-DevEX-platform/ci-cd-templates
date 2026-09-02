@@ -1,0 +1,22 @@
+name: Kubernetes GitOps Production Promotion
+
+on:
+  workflow_call:
+    secrets:
+      PLATFORM_GITOPS_TOKEN:
+        description: Fine-grained token scoped to the configured GitOps repository with contents read/write access.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  production-promotion:
+    name: Production promotion is not implemented
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Production promotion placeholder
+        run: |
+          echo "Production promotion will be implemented separately."
+          echo "It will update environments/production/<service_name>/values.yaml after approval."
