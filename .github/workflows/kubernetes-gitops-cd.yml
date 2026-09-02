@@ -25,21 +25,17 @@ on:
         required: false
         type: string
         default: gitops
-      environment:
-        description: Target deployment environment.
-        required: true
-        type: string
     secrets:
-      PLATFORM_GITOPS_TOKEN:
-        description: Fine-grained token scoped to the configured GitOps repository with contents read/write access.
+      PLATFORM_GITOPS_STAGING_TOKEN:
+        description: Fine-grained staging token scoped to the configured GitOps repository with contents read/write access.
         required: true
 
 permissions:
   contents: read
 
 jobs:
-  update-gitops:
-    name: Update GitOps desired state
+  update-staging-gitops:
+    name: Update staging GitOps
     runs-on: ubuntu-latest
     steps:
       - name: Validate deployment inputs
@@ -47,7 +43,6 @@ jobs:
         env:
           SERVICE_NAME: ${{ inputs.service_name }}
           IMAGE_TAG: ${{ inputs.image_tag }}
-          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
         shell: bash
         run: |
           if [[ ! "$SERVICE_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || [[ ${#SERVICE_NAME} -gt 63 ]]; then
@@ -60,12 +55,7 @@ jobs:
             exit 1
           fi
 
-          if [[ ! "$DEPLOYMENT_ENVIRONMENT" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
-            echo "::error::environment must be lowercase kebab-case."
-            exit 1
-          fi
-
-          echo "values_file=environments/$DEPLOYMENT_ENVIRONMENT/$SERVICE_NAME/values.yaml" >> "$GITHUB_OUTPUT"
+          echo "values_file=environments/staging/$SERVICE_NAME/values.yaml" >> "$GITHUB_OUTPUT"
 
       - name: Check latest application main SHA
         id: latest-main
@@ -77,7 +67,7 @@ jobs:
           current_main_sha=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')
 
           if [[ "$IMAGE_TAG" != "$current_main_sha" ]]; then
-            echo "Deployment superseded: $IMAGE_TAG is not the current main SHA ($current_main_sha)."
+            echo "Staging deployment superseded: $IMAGE_TAG is not the current main SHA ($current_main_sha)."
             echo "superseded=true" >> "$GITHUB_OUTPUT"
           else
             echo "superseded=false" >> "$GITHUB_OUTPUT"
@@ -89,7 +79,7 @@ jobs:
         with:
           repository: ${{ inputs.gitops_repository }}
           ref: ${{ inputs.gitops_branch }}
-          token: ${{ secrets.PLATFORM_GITOPS_TOKEN }}
+          token: ${{ secrets.PLATFORM_GITOPS_STAGING_TOKEN }}
           path: ${{ inputs.gitops_checkout_path }}
           persist-credentials: true
 
@@ -115,7 +105,7 @@ jobs:
         shell: bash
         run: |
           if [[ ! -f "$VALUES_FILE" ]]; then
-            echo "::error::Values file not found: $VALUES_FILE"
+            echo "::error::Staging values file not found: $VALUES_FILE"
             exit 1
           fi
 
@@ -124,7 +114,7 @@ jobs:
           git add "$VALUES_FILE"
 
           if git diff --staged --quiet; then
-            echo "Desired state already references image $IMAGE_TAG; no change is required."
+            echo "Staging already references image $IMAGE_TAG; no change is required."
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -137,13 +127,12 @@ jobs:
           IMAGE_TAG: ${{ inputs.image_tag }}
           SERVICE_NAME: ${{ inputs.service_name }}
           SOURCE_REPOSITORY: ${{ github.repository }}
-          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit \
-            --message "deploy($DEPLOYMENT_ENVIRONMENT): $SERVICE_NAME to $IMAGE_TAG" \
+            --message "deploy(staging): $SERVICE_NAME to $IMAGE_TAG" \
             --message "Source: $SOURCE_REPOSITORY@$IMAGE_TAG"
 
       - name: Rebase and push GitOps trunk
@@ -157,7 +146,7 @@ jobs:
         run: |
           current_main_sha=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')
           if [[ "$IMAGE_TAG" != "$current_main_sha" ]]; then
-            echo "Deployment superseded before push: $IMAGE_TAG is not current main ($current_main_sha)."
+            echo "Staging deployment superseded before push: $IMAGE_TAG is not current main ($current_main_sha)."
             exit 0
           fi
 
@@ -167,7 +156,7 @@ jobs:
             git rebase "origin/$GITOPS_BRANCH"
 
             if git push origin "HEAD:$GITOPS_BRANCH"; then
-              echo "Desired state updated successfully."
+              echo "Staging desired state updated successfully."
               exit 0
             fi
 
@@ -176,5 +165,5 @@ jobs:
             fi
           done
 
-          echo "::error::Unable to push desired state after 3 attempts."
+          echo "::error::Unable to push staging desired state after 3 attempts."
           exit 1
