@@ -65,6 +65,7 @@ permissions:
 jobs:
   dockerfile-lint:
     name: Dockerfile Lint
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -77,6 +78,7 @@ jobs:
 
   formatting:
     name: Formatting
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -143,6 +145,7 @@ jobs:
 
   dependency-scan:
     name: Dependency Scan
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

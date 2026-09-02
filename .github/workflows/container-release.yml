@@ -21,6 +21,11 @@ on:
         description: Immutable image tag. Callers should normally pass the Git commit SHA.
         required: true
         type: string
+      publish_image:
+        description: Whether the validated image should be published to ECR.
+        required: false
+        type: boolean
+        default: true
       image_artifact_retention_days:
         description: Number of days to retain the temporary container image artifact.
         required: false
@@ -158,6 +163,7 @@ jobs:
 
   publish-ecr:
     name: Publish to ECR
+    if: inputs.publish_image
     needs:
       - sbom
     runs-on: ubuntu-latest
