@@ -56,8 +56,11 @@ jobs:
             exit 1
           fi
 
-          echo "staging_values_file=environments/staging/$SERVICE_NAME/values.yaml" >> "$GITHUB_OUTPUT"
-          echo "production_values_file=environments/production/$SERVICE_NAME/values.yaml" >> "$GITHUB_OUTPUT"
+          {
+            echo "staging_values_file=environments/staging/$SERVICE_NAME/values.yaml"
+            echo "production_values_file=environments/production/$SERVICE_NAME/values.yaml"
+            echo "production_marker_file=environments/production/$SERVICE_NAME/promotion.yaml"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check out GitOps trunk
         uses: actions/checkout@v4
@@ -88,6 +91,7 @@ jobs:
           SOURCE_REPOSITORY: ${{ github.repository }}
           STAGING_VALUES_FILE: ${{ steps.promotion.outputs.staging_values_file }}
           PRODUCTION_VALUES_FILE: ${{ steps.promotion.outputs.production_values_file }}
+          PRODUCTION_MARKER_FILE: ${{ steps.promotion.outputs.production_marker_file }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -117,7 +121,10 @@ jobs:
 
             export IMAGE_TAG
             yq --inplace '.image.tag = env(IMAGE_TAG)' "$PRODUCTION_VALUES_FILE"
-            git add "$PRODUCTION_VALUES_FILE"
+            if [[ ! -f "$PRODUCTION_MARKER_FILE" ]]; then
+              printf 'enabled: true\n' > "$PRODUCTION_MARKER_FILE"
+            fi
+            git add "$PRODUCTION_VALUES_FILE" "$PRODUCTION_MARKER_FILE"
 
             if git diff --staged --quiet; then
               echo "Production already references image $IMAGE_TAG; no change is required."
