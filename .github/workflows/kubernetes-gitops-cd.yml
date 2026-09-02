@@ -26,8 +26,8 @@ on:
         type: string
         default: gitops
     secrets:
-      PLATFORM_GITOPS_STAGING_TOKEN:
-        description: Fine-grained staging token scoped to the configured GitOps repository with contents read/write access.
+      PLATFORM_GITOPS_TOKEN:
+        description: Fine-grained token scoped to the configured GitOps repository with contents read/write access.
         required: true
 
 permissions:
@@ -79,7 +79,7 @@ jobs:
         with:
           repository: ${{ inputs.gitops_repository }}
           ref: ${{ inputs.gitops_branch }}
-          token: ${{ secrets.PLATFORM_GITOPS_STAGING_TOKEN }}
+          token: ${{ secrets.PLATFORM_GITOPS_TOKEN }}
           path: ${{ inputs.gitops_checkout_path }}
           persist-credentials: true
 
