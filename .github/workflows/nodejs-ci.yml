@@ -201,7 +201,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    if: github.event_name == 'pull_request' && inputs.has_integration_tests == true
+    if: github.event_name == 'pull_request' && inputs.has_integration_tests == true && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
     needs:
       - dockerfile-lint
       - formatting
