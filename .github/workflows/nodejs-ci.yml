@@ -48,6 +48,11 @@ on:
         required: false
         type: string
         default: npm run test:integration
+      integration_test_install_command:
+        description: Dependency installation command for integration tests. Defaults to install_command.
+        required: false
+        type: string
+        default: ''
       integration_test_working_directory:
         description: Directory where integration tests run. Defaults to working_directory.
         required: false
@@ -206,9 +211,9 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
 
-      - name: Install dependencies
-        working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.install_command }}
+      - name: Install integration test dependencies
+        working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
+        run: ${{ inputs.integration_test_install_command != '' && inputs.integration_test_install_command || inputs.install_command }}
 
       - name: Configure integration test variables
         if: inputs.integration_test_vars != '{}'
