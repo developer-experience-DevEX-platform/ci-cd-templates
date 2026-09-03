@@ -63,6 +63,16 @@ on:
         required: false
         type: string
         default: '{}'
+      integration_test_secret_source:
+        description: 'Secret source for integration tests. Supported values: none, aws-secrets-manager.'
+        required: false
+        type: string
+        default: none
+      integration_test_secret_mapping:
+        description: JSON array mapping AWS Secrets Manager secrets to integration-test environment variables.
+        required: false
+        type: string
+        default: '[]'
 
 permissions:
   contents: read
@@ -191,7 +201,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    if: github.event_name == 'pull_request' && inputs.has_integration_tests == true
+    if: github.event_name == 'pull_request' && inputs.has_integration_tests == true && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
     needs:
       - dockerfile-lint
       - formatting
@@ -200,6 +210,9 @@ jobs:
       - dependency-scan
       - sast
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -223,6 +236,116 @@ jobs:
         run: |
           echo "$INTEGRATION_TEST_VARS" |
           jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+
+      - name: Validate integration test secret configuration
+        env:
+          INTEGRATION_TEST_SECRET_SOURCE: ${{ inputs.integration_test_secret_source }}
+          INTEGRATION_TEST_SECRET_MAPPING: ${{ inputs.integration_test_secret_mapping }}
+          AWS_INTEGRATION_TEST_ROLE_ARN: ${{ vars.AWS_INTEGRATION_TEST_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "$INTEGRATION_TEST_SECRET_SOURCE" in
+            none)
+              exit 0
+              ;;
+            aws-secrets-manager)
+              ;;
+            *)
+              echo "::error::Unsupported integration_test_secret_source: $INTEGRATION_TEST_SECRET_SOURCE"
+              exit 1
+              ;;
+          esac
+
+          if [[ -z "$AWS_INTEGRATION_TEST_ROLE_ARN" ]]; then
+            echo "::error::AWS_INTEGRATION_TEST_ROLE_ARN is not configured for this repository."
+            exit 1
+          fi
+
+          if [[ -z "$AWS_REGION" ]]; then
+            echo "::error::AWS_REGION is not configured for this repository."
+            exit 1
+          fi
+
+          if ! jq -e '
+            type == "array" and
+            all(.[];
+              type == "object" and
+              (.env | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$")) and
+              (.secret_id | type == "string" and length > 0) and
+              ((has("json_key") | not) or (.json_key | type == "string" and length > 0))
+            )
+          ' <<< "$INTEGRATION_TEST_SECRET_MAPPING" > /dev/null; then
+            echo "::error::integration_test_secret_mapping must be a valid JSON array whose entries contain env and secret_id; json_key is optional."
+            exit 1
+          fi
+
+      - name: Configure AWS integration test credentials
+        if: inputs.integration_test_secret_source == 'aws-secrets-manager'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_INTEGRATION_TEST_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: integration-tests-${{ github.run_id }}
+
+      - name: Fetch integration test secrets
+        if: inputs.integration_test_secret_source == 'aws-secrets-manager'
+        env:
+          INTEGRATION_TEST_SECRET_MAPPING: ${{ inputs.integration_test_secret_mapping }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jq -c '.[]' <<< "$INTEGRATION_TEST_SECRET_MAPPING" |
+          while IFS= read -r mapping; do
+            env_name="$(jq -r '.env' <<< "$mapping")"
+            secret_id="$(jq -r '.secret_id' <<< "$mapping")"
+            json_key="$(jq -r '.json_key // empty' <<< "$mapping")"
+
+            if ! secret_string="$(aws secretsmanager get-secret-value \
+              --secret-id "$secret_id" \
+              --query SecretString \
+              --output text)"; then
+              echo "::error::Unable to read the requested Secrets Manager secret: $secret_id"
+              exit 1
+            fi
+
+            if [[ "$secret_string" == "None" ]]; then
+              echo "::error::The requested secret does not contain SecretString: $secret_id"
+              exit 1
+            fi
+
+            secret_value="$secret_string"
+            if [[ -n "$json_key" ]]; then
+              if ! secret_value="$(jq -er --arg key "$json_key" '
+                if type == "object" and has($key) then
+                  .[$key] | if type == "string" then . else tostring end
+                else
+                  error("requested json_key does not exist")
+                end
+              ' <<< "$secret_string")"; then
+                echo "::error::json_key '$json_key' does not exist in secret: $secret_id"
+                exit 1
+              fi
+            fi
+
+            masked_value="${secret_value//'%'/'%25'}"
+            masked_value="${masked_value//$'\r'/'%0D'}"
+            masked_value="${masked_value//$'\n'/'%0A'}"
+            printf '::add-mask::%s\n' "$masked_value"
+
+            delimiter="SECRET_$(cat /proc/sys/kernel/random/uuid)"
+            while grep -Fxq "$delimiter" <<< "$secret_value"; do
+              delimiter="SECRET_$(cat /proc/sys/kernel/random/uuid)"
+            done
+            {
+              printf '%s<<%s\n' "$env_name" "$delimiter"
+              printf '%s\n' "$secret_value"
+              printf '%s\n' "$delimiter"
+            } >> "$GITHUB_ENV"
+          done
 
       - name: Run integration tests
         working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
