@@ -55,7 +55,10 @@ jobs:
             exit 1
           fi
 
-          echo "values_file=environments/staging/$SERVICE_NAME/values.yaml" >> "$GITHUB_OUTPUT"
+          {
+            echo "values_file=environments/staging/$SERVICE_NAME/values.yaml"
+            echo "deployment_file=environments/staging/$SERVICE_NAME/deployment.yaml"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check latest application main SHA
         id: latest-main
@@ -105,6 +108,7 @@ jobs:
           SERVICE_NAME: ${{ inputs.service_name }}
           SOURCE_REPOSITORY: ${{ github.repository }}
           VALUES_FILE: ${{ steps.deployment.outputs.values_file }}
+          DEPLOYMENT_FILE: ${{ steps.deployment.outputs.deployment_file }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -129,10 +133,11 @@ jobs:
 
             export IMAGE_TAG
             yq --inplace '.image.tag = env(IMAGE_TAG)' "$VALUES_FILE"
-            git add "$VALUES_FILE"
+            printf 'enabled: true\n' > "$DEPLOYMENT_FILE"
+            git add "$VALUES_FILE" "$DEPLOYMENT_FILE"
 
             if git diff --staged --quiet; then
-              echo "Staging already references image $IMAGE_TAG; no change is required."
+              echo "Staging already references image $IMAGE_TAG and is enabled; no change is required."
               exit 0
             fi
 
