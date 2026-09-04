@@ -67,6 +67,11 @@ on:
 permissions:
   contents: read
 
+env:
+  NPM_CONFIG_AUDIT: 'false'
+  NPM_CONFIG_FUND: 'false'
+  NPM_CONFIG_PREFER_OFFLINE: 'true'
+
 jobs:
   dockerfile-lint:
     name: Dockerfile Lint
