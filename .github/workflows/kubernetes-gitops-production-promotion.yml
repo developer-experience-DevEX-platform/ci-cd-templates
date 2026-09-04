@@ -63,7 +63,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Check out GitOps trunk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.gitops_repository }}
           ref: ${{ inputs.gitops_branch }}

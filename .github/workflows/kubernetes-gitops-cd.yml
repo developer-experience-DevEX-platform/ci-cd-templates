@@ -78,7 +78,7 @@ jobs:
 
       - name: Check out GitOps trunk
         if: steps.latest-main.outputs.superseded == 'false'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.gitops_repository }}
           ref: ${{ inputs.gitops_branch }}

@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build container image
         env:
@@ -68,7 +68,7 @@ jobs:
         run: docker save --output image.tar "$IMAGE_NAME:$IMAGE_TAG"
 
       - name: Upload container image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: container-image
           path: image.tar
@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download container image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: container-image
 
@@ -98,7 +98,7 @@ jobs:
 
       - name: Upload Trivy image report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-image-report
           path: trivy-image-report.json
@@ -110,7 +110,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download container image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: container-image
 
@@ -128,7 +128,7 @@ jobs:
 
       - name: Upload Dockle report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dockle-report
           path: dockle-report.json
@@ -142,7 +142,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download container image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: container-image
 
@@ -155,7 +155,7 @@ jobs:
           output: sbom.cdx.json
 
       - name: Upload container SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: container-sbom
           path: sbom.cdx.json
@@ -172,7 +172,7 @@ jobs:
       id-token: write
     steps:
       - name: Download container image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: container-image
 
