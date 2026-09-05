@@ -48,6 +48,18 @@ without AWS authentication. Secret-backed integration tests run only for
 same-repository pull requests and use the platform-provisioned OIDC role; pull
 requests from forks skip the entire integration-test job.
 
+## Node.js Lambda package contract
+
+`nodejs-lambda-package.yml` packages an already validated Node.js Lambda as an
+immutable GitHub Actions artifact named `lambda-package-<git-sha>`. The build
+must produce `dist/handler.js` exporting `handler`; the future AWS Lambda
+handler setting is therefore `dist/handler.handler`.
+
+The ZIP root contains only `dist/`, production `node_modules/`, and
+`package.json`. The workflow uploads `function.zip` with
+`function.zip.sha256`, and also exposes the SHA-256 digest as its `checksum`
+output. It performs no AWS authentication, upload, or deployment.
+
 ## CD workflows
 
 CD workflows will be added later. They will handle capabilities such as:
