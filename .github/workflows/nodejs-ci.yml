@@ -282,16 +282,15 @@ jobs:
               ((keys - ["env", "secret", "json_key"]) | length == 0) and
               (.env | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$")) and
               (.secret | type == "string" and
-                test("^[A-Za-z0-9][A-Za-z0-9_+=.@-]*(/[A-Za-z0-9][A-Za-z0-9_+=.@-]*)*$") and
+                test("^[A-Za-z0-9][A-Za-z0-9_+=.@-]*$") and
                 (contains(":") | not) and
-                (contains("..") | not) and
-                (startswith("/") | not)) and
+                (contains("..") | not)) and
               ((has("json_key") | not) or (.json_key | type == "string" and length > 0))
             ) and
             (([($document.secrets // [])[].env] | length) ==
               ([($document.secrets // [])[].env] | unique | length))
           ' "$RUNNER_TEMP/integration-tests-document.json" > /dev/null; then
-            echo "::error::$declaration_file must contain at most 25 unique env mappings with safe relative secret names and optional json_key values."
+            echo "::error::$declaration_file must contain at most 25 unique env mappings with single logical secret names and optional json_key values."
             exit 1
           fi
 
@@ -337,7 +336,7 @@ jobs:
             env_name="$(jq -r '.env' <<< "$mapping")"
             relative_secret="$(jq -r '.secret' <<< "$mapping")"
             json_key="$(jq -r '.json_key // empty' <<< "$mapping")"
-            secret_id="$SERVICE_NAME/$relative_secret"
+            secret_id="$SERVICE_NAME/integration/$relative_secret"
 
             if ! secret_string="$(aws secretsmanager get-secret-value \
               --secret-id "$secret_id" \

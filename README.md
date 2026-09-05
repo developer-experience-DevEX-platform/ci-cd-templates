@@ -34,13 +34,14 @@ secrets:
 ```
 
 `env` is the environment variable exposed to the integration test, `secret` is
-a relative name within the service's Secrets Manager namespace, and `json_key`
-is optional. For an `orders-api` repository, `integration-db` resolves to
-`orders-api/integration-db`.
+a single logical secret name, and `json_key` is optional. For an `orders-api`
+repository, `integration-db` resolves to
+`orders-api/integration/integration-db`.
 
 Declarations are limited to 25 entries. Environment variable names must be
-valid and unique. Secret names cannot be ARNs, absolute paths, or contain `..`
-or `:`. Arbitrary AWS secret ARNs are not accepted from service-owned config.
+valid and unique. Secret names may contain letters, digits, `_`, `-`, `.`, `+`,
+`=`, and `@`, but cannot contain `/`, `..`, or `:`. ARNs and paths are rejected,
+so service-owned configuration cannot select an arbitrary AWS secret ARN.
 
 When the file is absent, empty, or has no secret entries, integration tests run
 without AWS authentication. Secret-backed integration tests run only for
