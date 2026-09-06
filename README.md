@@ -60,6 +60,22 @@ The ZIP root contains only `dist/`, production `node_modules/`, and
 `function.zip.sha256`, and also exposes the SHA-256 digest as its `checksum`
 output. It performs no AWS authentication, upload, or deployment.
 
+Lambda releases keep packaging, immutable publication, and deployment separate:
+
+```text
+nodejs-lambda-package.yml
+    -> creates and checksums the immutable ZIP
+nodejs-lambda-release.yml
+    -> verifies and conditionally publishes that ZIP to the service's S3 prefix
+future lambda-cd.yml
+    -> deploys that exact S3 artifact
+```
+
+The release workflow accepts only packaging inputs. AWS region, publishing
+role, and shared artifact bucket come from Terraform-managed repository
+variables. Publishing runs only for a push to `main`, uses GitHub OIDC, and
+refuses to overwrite an existing SHA-addressed object.
+
 ## CD workflows
 
 CD workflows will be added later. They will handle capabilities such as:
