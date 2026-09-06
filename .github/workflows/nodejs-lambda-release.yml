@@ -1,0 +1,185 @@
+name: Node.js Lambda Release
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Lambda source directory
+        required: false
+        type: string
+        default: .
+      node_version:
+        description: Node.js version
+        required: false
+        type: string
+        default: '24'
+      install_command:
+        description: Dependency installation command
+        required: false
+        type: string
+        default: npm ci
+      build_command:
+        description: Command that produces the dist directory
+        required: false
+        type: string
+        default: npm run build
+    outputs:
+      artifact_sha:
+        description: Immutable Git commit SHA used as the release identity
+        value: ${{ jobs.publish.outputs.artifact_sha }}
+      artifact_checksum:
+        description: Verified SHA-256 checksum of function.zip
+        value: ${{ jobs.publish.outputs.artifact_checksum }}
+      artifact_s3_key:
+        description: Immutable S3 key containing function.zip
+        value: ${{ jobs.publish.outputs.artifact_s3_key }}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package Lambda
+    uses: ./.github/workflows/nodejs-lambda-package.yml
+    with:
+      working_directory: ${{ inputs.working_directory }}
+      node_version: ${{ inputs.node_version }}
+      install_command: ${{ inputs.install_command }}
+      build_command: ${{ inputs.build_command }}
+    permissions:
+      contents: read
+
+  publish:
+    name: Publish Lambda Artifact
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      artifact_sha: ${{ steps.release.outputs.artifact_sha }}
+      artifact_checksum: ${{ steps.release.outputs.artifact_checksum }}
+      artifact_s3_key: ${{ steps.release.outputs.artifact_s3_key }}
+    steps:
+      - name: Validate immutable release identity
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          SERVICE_NAME: ${{ github.event.repository.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Lambda releases require github.sha to be a full lowercase 40-character Git SHA."
+            exit 1
+          fi
+
+          if [[ ! "$SERVICE_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "::error::Repository name must use lowercase kebab-case to form the service artifact prefix."
+            exit 1
+          fi
+
+      - name: Download Lambda package
+        uses: actions/download-artifact@v8
+        with:
+          name: lambda-package-${{ github.sha }}
+          path: ${{ runner.temp }}/lambda-release
+
+      - name: Verify package checksum
+        id: release
+        env:
+          PACKAGE_DIRECTORY: ${{ runner.temp }}/lambda-release
+          RELEASE_SHA: ${{ github.sha }}
+          SERVICE_NAME: ${{ github.event.repository.name }}
+          PACKAGE_CHECKSUM: ${{ needs.package.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd "$PACKAGE_DIRECTORY"
+          test -f function.zip
+          test -f function.zip.sha256
+          sha256sum --check function.zip.sha256
+
+          verified_checksum=$(sha256sum function.zip | cut -d ' ' -f 1)
+          if [[ "$verified_checksum" != "$PACKAGE_CHECKSUM" ]]; then
+            echo "::error::Downloaded package checksum does not match the packaging job output."
+            exit 1
+          fi
+
+          {
+            echo "artifact_sha=$RELEASE_SHA"
+            echo "artifact_checksum=$verified_checksum"
+            echo "artifact_s3_key=$SERVICE_NAME/$RELEASE_SHA/function.zip"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate platform configuration
+        env:
+          AWS_LAMBDA_ARTIFACT_BUCKET: ${{ vars.AWS_LAMBDA_ARTIFACT_BUCKET }}
+          AWS_LAMBDA_RELEASE_ROLE_ARN: ${{ vars.AWS_LAMBDA_RELEASE_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for variable_name in AWS_REGION AWS_LAMBDA_RELEASE_ROLE_ARN AWS_LAMBDA_ARTIFACT_BUCKET; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "::error::Missing platform-managed repository variable: $variable_name"
+              exit 1
+            fi
+          done
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_LAMBDA_RELEASE_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: devex-lambda-release-${{ github.run_id }}
+
+      - name: Publish immutable Lambda package
+        env:
+          AWS_LAMBDA_ARTIFACT_BUCKET: ${{ vars.AWS_LAMBDA_ARTIFACT_BUCKET }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          PACKAGE_DIRECTORY: ${{ runner.temp }}/lambda-release
+          RELEASE_SHA: ${{ github.sha }}
+          SERVICE_NAME: ${{ github.event.repository.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          publish_once() {
+            local source_file=$1
+            local object_key=$2
+            local response
+            local status
+
+            set +e
+            response=$(aws s3api put-object \
+              --bucket "$AWS_LAMBDA_ARTIFACT_BUCKET" \
+              --key "$object_key" \
+              --body "$source_file" \
+              --if-none-match '*' \
+              --region "$AWS_REGION" \
+              --no-cli-pager 2>&1)
+            status=$?
+            set -e
+
+            if [[ $status -eq 0 ]]; then
+              return 0
+            fi
+
+            if [[ "$response" == *"PreconditionFailed"* || "$response" == *"412"* ]]; then
+              echo "::error::Immutable Lambda release object already exists: $object_key"
+              return 1
+            fi
+
+            echo "::error::Failed to publish Lambda release object: $object_key"
+            printf '%s\n' "$response" >&2
+            return "$status"
+          }
+
+          artifact_prefix="$SERVICE_NAME/$RELEASE_SHA"
+          publish_once "$PACKAGE_DIRECTORY/function.zip" "$artifact_prefix/function.zip"
+          publish_once "$PACKAGE_DIRECTORY/function.zip.sha256" "$artifact_prefix/function.zip.sha256"
