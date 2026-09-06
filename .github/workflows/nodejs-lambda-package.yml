@@ -1,0 +1,112 @@
+name: Node.js Lambda Package
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Lambda source directory
+        required: false
+        type: string
+        default: .
+      node_version:
+        description: Node.js version
+        required: false
+        type: string
+        default: '24'
+      install_command:
+        description: Dependency installation command
+        required: false
+        type: string
+        default: npm ci
+      build_command:
+        description: Command that produces the dist directory
+        required: false
+        type: string
+        default: npm run build
+    outputs:
+      checksum:
+        description: SHA-256 checksum of function.zip
+        value: ${{ jobs.package.outputs.checksum }}
+
+permissions:
+  contents: read
+
+env:
+  NPM_CONFIG_AUDIT: 'false'
+  NPM_CONFIG_FUND: 'false'
+  NPM_CONFIG_PREFER_OFFLINE: 'true'
+
+jobs:
+  package:
+    name: Package Lambda
+    runs-on: ubuntu-latest
+    outputs:
+      checksum: ${{ steps.checksum.outputs.sha256 }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.install_command }}
+
+      - name: Build Lambda
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.build_command }}
+
+      - name: Keep production dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: npm prune --omit=dev
+
+      - name: Prepare Lambda package
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f package.json
+          test -d dist
+
+          package_directory="$RUNNER_TEMP/lambda-package"
+          archive="$RUNNER_TEMP/function.zip"
+
+          rm -rf "$package_directory"
+          rm -f "$archive" "$RUNNER_TEMP/function.zip.sha256"
+          mkdir -p "$package_directory"
+
+          cp package.json "$package_directory/package.json"
+          cp -R dist "$package_directory/dist"
+          if [[ -d node_modules ]]; then
+            cp -R node_modules "$package_directory/node_modules"
+          fi
+
+          (
+            cd "$package_directory"
+            zip -q -r "$archive" .
+          )
+
+      - name: Calculate package checksum
+        id: checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd "$RUNNER_TEMP"
+          sha256sum function.zip > function.zip.sha256
+          echo "sha256=$(cut -d ' ' -f 1 function.zip.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Lambda package
+        uses: actions/upload-artifact@v7
+        with:
+          name: lambda-package-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/function.zip
+            ${{ runner.temp }}/function.zip.sha256
+          if-no-files-found: error
