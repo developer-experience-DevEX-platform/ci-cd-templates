@@ -67,14 +67,22 @@ nodejs-lambda-package.yml
     -> creates and checksums the immutable ZIP
 nodejs-lambda-release.yml
     -> verifies and conditionally publishes that ZIP to the service's S3 prefix
-future lambda-cd.yml
-    -> deploys that exact S3 artifact
+nodejs-lambda-staging-deploy.yml
+    -> deploys that exact S3 artifact and publishes an immutable Lambda version
 ```
 
 The release workflow accepts only packaging inputs. AWS region, publishing
 role, and shared artifact bucket come from Terraform-managed repository
 variables. Publishing runs only for a push to `main`, uses GitHub OIDC, and
 refuses to overwrite an existing SHA-addressed object.
+
+The staging deployment workflow accepts only the immutable artifact SHA, S3
+key, and SHA-256 checksum emitted by the release workflow. It runs only for a
+push to `main`, assumes the platform-managed staging deployment role through
+GitHub OIDC, updates `$LATEST` from the exact S3 object, verifies Lambda's
+`CodeSha256`, and publishes a version guarded by both `CodeSha256` and
+`RevisionId`. It does not rebuild the ZIP, change function configuration, or
+deploy production.
 
 ## CD workflows
 

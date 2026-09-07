@@ -1,0 +1,181 @@
+name: Node.js Lambda Staging Deploy
+
+on:
+  workflow_call:
+    inputs:
+      artifact_sha:
+        description: Immutable Git SHA identifying the published Lambda artifact
+        required: true
+        type: string
+      artifact_checksum:
+        description: Lowercase hexadecimal SHA-256 checksum of function.zip
+        required: true
+        type: string
+      artifact_s3_key:
+        description: Immutable S3 key containing function.zip
+        required: true
+        type: string
+    outputs:
+      code_sha256:
+        description: Base64-encoded SHA-256 checksum reported by Lambda
+        value: ${{ jobs.deploy.outputs.code_sha256 }}
+      revision_id:
+        description: Revision ID used to publish the immutable Lambda version
+        value: ${{ jobs.deploy.outputs.revision_id }}
+      published_version:
+        description: Immutable Lambda version published after deployment
+        value: ${{ jobs.deploy.outputs.published_version }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Lambda to Staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      code_sha256: ${{ steps.deploy.outputs.code_sha256 }}
+      revision_id: ${{ steps.deploy.outputs.revision_id }}
+      published_version: ${{ steps.deploy.outputs.published_version }}
+    steps:
+      - name: Validate immutable staging deployment
+        env:
+          ARTIFACT_CHECKSUM: ${{ inputs.artifact_checksum }}
+          ARTIFACT_S3_KEY: ${{ inputs.artifact_s3_key }}
+          ARTIFACT_SHA: ${{ inputs.artifact_sha }}
+          RELEASE_SHA: ${{ github.sha }}
+          SERVICE_NAME: ${{ github.event.repository.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$ARTIFACT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::artifact_sha must be a lowercase 40-character Git SHA."
+            exit 1
+          fi
+
+          if [[ "$ARTIFACT_SHA" != "$RELEASE_SHA" ]]; then
+            echo "::error::artifact_sha must match the current main release commit."
+            exit 1
+          fi
+
+          if [[ ! "$ARTIFACT_CHECKSUM" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::artifact_checksum must be a lowercase hexadecimal SHA-256 checksum."
+            exit 1
+          fi
+
+          expected_key="$SERVICE_NAME/$ARTIFACT_SHA/function.zip"
+          if [[ "$ARTIFACT_S3_KEY" != "$expected_key" ]]; then
+            echo "::error::artifact_s3_key must be exactly $expected_key"
+            exit 1
+          fi
+
+      - name: Validate platform configuration
+        env:
+          AWS_LAMBDA_ARTIFACT_BUCKET: ${{ vars.AWS_LAMBDA_ARTIFACT_BUCKET }}
+          AWS_LAMBDA_STAGING_DEPLOY_ROLE_ARN: ${{ vars.AWS_LAMBDA_STAGING_DEPLOY_ROLE_ARN }}
+          AWS_LAMBDA_STAGING_FUNCTION_NAME: ${{ vars.AWS_LAMBDA_STAGING_FUNCTION_NAME }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          SERVICE_NAME: ${{ github.event.repository.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for variable_name in \
+            AWS_REGION \
+            AWS_LAMBDA_ARTIFACT_BUCKET \
+            AWS_LAMBDA_STAGING_DEPLOY_ROLE_ARN \
+            AWS_LAMBDA_STAGING_FUNCTION_NAME; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "::error::Missing platform-managed repository variable: $variable_name"
+              exit 1
+            fi
+          done
+
+          expected_function_name="$SERVICE_NAME-staging"
+          if [[ "$AWS_LAMBDA_STAGING_FUNCTION_NAME" != "$expected_function_name" ]]; then
+            echo "::error::AWS_LAMBDA_STAGING_FUNCTION_NAME must be exactly $expected_function_name"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_LAMBDA_STAGING_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: devex-lambda-staging-deploy-${{ github.run_id }}
+
+      - name: Deploy and publish immutable Lambda version
+        id: deploy
+        env:
+          ARTIFACT_CHECKSUM: ${{ inputs.artifact_checksum }}
+          ARTIFACT_S3_KEY: ${{ inputs.artifact_s3_key }}
+          AWS_LAMBDA_ARTIFACT_BUCKET: ${{ vars.AWS_LAMBDA_ARTIFACT_BUCKET }}
+          AWS_LAMBDA_STAGING_FUNCTION_NAME: ${{ vars.AWS_LAMBDA_STAGING_FUNCTION_NAME }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws lambda update-function-code \
+            --function-name "$AWS_LAMBDA_STAGING_FUNCTION_NAME" \
+            --s3-bucket "$AWS_LAMBDA_ARTIFACT_BUCKET" \
+            --s3-key "$ARTIFACT_S3_KEY" \
+            --no-publish \
+            --region "$AWS_REGION" \
+            --no-cli-pager >/dev/null
+
+          aws lambda wait function-updated-v2 \
+            --function-name "$AWS_LAMBDA_STAGING_FUNCTION_NAME" \
+            --region "$AWS_REGION"
+
+          function_configuration=$(aws lambda get-function-configuration \
+            --function-name "$AWS_LAMBDA_STAGING_FUNCTION_NAME" \
+            --region "$AWS_REGION" \
+            --output json \
+            --no-cli-pager)
+
+          code_sha256=$(jq -r '.CodeSha256' <<< "$function_configuration")
+          revision_id=$(jq -r '.RevisionId' <<< "$function_configuration")
+          expected_code_sha256=$(printf '%s' "$ARTIFACT_CHECKSUM" | xxd -r -p | base64 | tr -d '\n')
+
+          if [[ -z "$code_sha256" || "$code_sha256" == "null" ]]; then
+            echo "::error::Lambda did not return CodeSha256 after the update."
+            exit 1
+          fi
+
+          if [[ -z "$revision_id" || "$revision_id" == "null" ]]; then
+            echo "::error::Lambda did not return RevisionId after the update."
+            exit 1
+          fi
+
+          if [[ "$code_sha256" != "$expected_code_sha256" ]]; then
+            echo "::error::Lambda CodeSha256 does not match the release artifact checksum."
+            exit 1
+          fi
+
+          published_version=$(aws lambda publish-version \
+            --function-name "$AWS_LAMBDA_STAGING_FUNCTION_NAME" \
+            --code-sha256 "$code_sha256" \
+            --revision-id "$revision_id" \
+            --region "$AWS_REGION" \
+            --query 'Version' \
+            --output text \
+            --no-cli-pager)
+
+          if [[ -z "$published_version" || "$published_version" == "None" ]]; then
+            echo "::error::Lambda did not return a published version."
+            exit 1
+          fi
+
+          {
+            echo "code_sha256=$code_sha256"
+            echo "revision_id=$revision_id"
+            echo "published_version=$published_version"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Published immutable staging Lambda version: $published_version"
