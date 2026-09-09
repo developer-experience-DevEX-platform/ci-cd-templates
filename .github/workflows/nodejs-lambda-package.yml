@@ -8,30 +8,22 @@ on:
         required: false
         type: string
         default: .
-      node_version:
-        description: Node.js version
-        required: false
-        type: string
-        default: '24'
-      install_command:
-        description: Dependency installation command
-        required: false
-        type: string
-        default: npm ci
-      build_command:
-        description: Command that produces the dist directory
-        required: false
-        type: string
-        default: npm run build
     outputs:
       checksum:
-        description: SHA-256 checksum of function.zip
+        description: Lowercase hexadecimal SHA-256 checksum of function.zip
         value: ${{ jobs.package.outputs.checksum }}
+      checksum_base64:
+        description: Base64 SHA-256 checksum of function.zip, the form Lambda reports as CodeSha256
+        value: ${{ jobs.package.outputs.checksum_base64 }}
 
 permissions:
   contents: read
 
 env:
+  # Must match the runtime pinned by modules/platform/service-lambda. Services
+  # do not choose this: the packaged code and the deployed function have to
+  # agree, and Terraform owns the function.
+  NODE_VERSION: '24'
   NPM_CONFIG_AUDIT: 'false'
   NPM_CONFIG_FUND: 'false'
   NPM_CONFIG_PREFER_OFFLINE: 'true'
@@ -40,8 +32,10 @@ jobs:
   package:
     name: Package Lambda
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       checksum: ${{ steps.checksum.outputs.sha256 }}
+      checksum_base64: ${{ steps.checksum.outputs.sha256_base64 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -49,17 +43,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
 
       - name: Install dependencies
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.install_command }}
+        run: npm ci
 
       - name: Build Lambda
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.build_command }}
+        run: npm run build
 
       - name: Keep production dependencies
         working-directory: ${{ inputs.working_directory }}
@@ -87,9 +81,18 @@ jobs:
             cp -R node_modules "$package_directory/node_modules"
           fi
 
+          # A ZIP addressed by Git SHA has to be byte-identical every time that
+          # SHA is rebuilt, otherwise the checksum describes the run rather than
+          # the commit. Pinning mtimes to the ZIP epoch, sorting entries, and
+          # dropping Unix extra fields (-X) makes the archive depend only on
+          # content.
+          find "$package_directory" -exec touch -h -t 198001010000 {} +
           (
             cd "$package_directory"
-            zip -q -r "$archive" .
+            find . -type f -o -type l \
+              | LC_ALL=C sort \
+              | sed 's|^\./||' \
+              | zip -q -X -@ "$archive"
           )
 
       - name: Calculate package checksum
@@ -100,7 +103,11 @@ jobs:
 
           cd "$RUNNER_TEMP"
           sha256sum function.zip > function.zip.sha256
-          echo "sha256=$(cut -d ' ' -f 1 function.zip.sha256)" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "sha256=$(cut -d ' ' -f 1 function.zip.sha256)"
+            echo "sha256_base64=$(openssl dgst -sha256 -binary function.zip | base64)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload Lambda package
         uses: actions/upload-artifact@v7

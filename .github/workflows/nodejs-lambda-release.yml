@@ -8,31 +8,10 @@ on:
         required: false
         type: string
         default: .
-      node_version:
-        description: Node.js version
-        required: false
-        type: string
-        default: '24'
-      install_command:
-        description: Dependency installation command
-        required: false
-        type: string
-        default: npm ci
-      build_command:
-        description: Command that produces the dist directory
-        required: false
-        type: string
-        default: npm run build
     outputs:
-      artifact_sha:
-        description: Immutable Git commit SHA used as the release identity
-        value: ${{ jobs.publish.outputs.artifact_sha }}
-      artifact_checksum:
-        description: Verified SHA-256 checksum of function.zip
-        value: ${{ jobs.publish.outputs.artifact_checksum }}
-      artifact_s3_key:
-        description: Immutable S3 key containing function.zip
-        value: ${{ jobs.publish.outputs.artifact_s3_key }}
+      artifact_checksum_base64:
+        description: Base64 SHA-256 checksum of the published function.zip
+        value: ${{ jobs.publish.outputs.artifact_checksum_base64 }}
 
 permissions:
   contents: read
@@ -43,83 +22,44 @@ jobs:
     uses: ./.github/workflows/nodejs-lambda-package.yml
     with:
       working_directory: ${{ inputs.working_directory }}
-      node_version: ${{ inputs.node_version }}
-      install_command: ${{ inputs.install_command }}
-      build_command: ${{ inputs.build_command }}
     permissions:
       contents: read
 
   publish:
     name: Publish Lambda Artifact
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: package
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       actions: read
       id-token: write
     outputs:
-      artifact_sha: ${{ steps.release.outputs.artifact_sha }}
-      artifact_checksum: ${{ steps.release.outputs.artifact_checksum }}
-      artifact_s3_key: ${{ steps.release.outputs.artifact_s3_key }}
+      artifact_checksum_base64: ${{ needs.package.outputs.checksum_base64 }}
     steps:
-      - name: Validate immutable release identity
+      - name: Require a push to main
         env:
-          RELEASE_SHA: ${{ github.sha }}
-          SERVICE_NAME: ${{ github.event.repository.name }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Lambda releases require github.sha to be a full lowercase 40-character Git SHA."
+          # Deliberately a failing step rather than a job-level `if`. A skipped
+          # job reports success, so a caller that wires the wrong trigger would
+          # see a green check and no release. For packaging validation on pull
+          # requests, call nodejs-lambda-package.yml directly from CI.
+          if [[ "$EVENT_NAME" != "push" || "$REF" != "refs/heads/main" ]]; then
+            echo "::error::Lambda releases run only for a push to main (got $EVENT_NAME on $REF)."
             exit 1
           fi
-
-          if [[ ! "$SERVICE_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
-            echo "::error::Repository name must use lowercase kebab-case to form the service artifact prefix."
-            exit 1
-          fi
-
-      - name: Download Lambda package
-        uses: actions/download-artifact@v8
-        with:
-          name: lambda-package-${{ github.sha }}
-          path: ${{ runner.temp }}/lambda-release
-
-      - name: Verify package checksum
-        id: release
-        env:
-          PACKAGE_DIRECTORY: ${{ runner.temp }}/lambda-release
-          RELEASE_SHA: ${{ github.sha }}
-          SERVICE_NAME: ${{ github.event.repository.name }}
-          PACKAGE_CHECKSUM: ${{ needs.package.outputs.checksum }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cd "$PACKAGE_DIRECTORY"
-          test -f function.zip
-          test -f function.zip.sha256
-          sha256sum --check function.zip.sha256
-
-          verified_checksum=$(sha256sum function.zip | cut -d ' ' -f 1)
-          if [[ "$verified_checksum" != "$PACKAGE_CHECKSUM" ]]; then
-            echo "::error::Downloaded package checksum does not match the packaging job output."
-            exit 1
-          fi
-
-          {
-            echo "artifact_sha=$RELEASE_SHA"
-            echo "artifact_checksum=$verified_checksum"
-            echo "artifact_s3_key=$SERVICE_NAME/$RELEASE_SHA/function.zip"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Validate platform configuration
         env:
           AWS_LAMBDA_ARTIFACT_BUCKET: ${{ vars.AWS_LAMBDA_ARTIFACT_BUCKET }}
           AWS_LAMBDA_RELEASE_ROLE_ARN: ${{ vars.AWS_LAMBDA_RELEASE_ROLE_ARN }}
           AWS_REGION: ${{ vars.AWS_REGION }}
+          SERVICE_NAME: ${{ github.event.repository.name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -131,6 +71,30 @@ jobs:
             fi
           done
 
+          # The repository name becomes the S3 key prefix, so it has to be a
+          # shape S3 and IAM can address predictably.
+          if [[ ! "$SERVICE_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "::error::Repository name must use lowercase kebab-case to form the service artifact prefix."
+            exit 1
+          fi
+
+      - name: Download Lambda package
+        uses: actions/download-artifact@v8
+        with:
+          name: lambda-package-${{ github.sha }}
+          path: ${{ runner.temp }}/lambda-release
+
+      - name: Verify downloaded package
+        working-directory: ${{ runner.temp }}/lambda-release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Guards transport corruption between the packaging job and this one.
+          # sha256sum --check fails if either file is missing, so no separate
+          # existence tests are needed.
+          sha256sum --check function.zip.sha256
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -140,6 +104,7 @@ jobs:
 
       - name: Publish immutable Lambda package
         env:
+          ARTIFACT_CHECKSUM_BASE64: ${{ needs.package.outputs.checksum_base64 }}
           AWS_LAMBDA_ARTIFACT_BUCKET: ${{ vars.AWS_LAMBDA_ARTIFACT_BUCKET }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           PACKAGE_DIRECTORY: ${{ runner.temp }}/lambda-release
@@ -149,37 +114,48 @@ jobs:
         run: |
           set -euo pipefail
 
-          publish_once() {
-            local source_file=$1
-            local object_key=$2
-            local response
-            local status
+          object_key="$SERVICE_NAME/$RELEASE_SHA/function.zip"
+          error_log="$RUNNER_TEMP/put-object.err"
 
-            set +e
-            response=$(aws s3api put-object \
-              --bucket "$AWS_LAMBDA_ARTIFACT_BUCKET" \
-              --key "$object_key" \
-              --body "$source_file" \
-              --if-none-match '*' \
-              --region "$AWS_REGION" \
-              --no-cli-pager 2>&1)
-            status=$?
-            set -e
+          # --if-none-match makes S3 refuse to overwrite an existing release,
+          # and --checksum-sha256 makes S3 reject a body that does not hash to
+          # what packaging measured. Both are enforced server side, so the
+          # write-once guarantee does not depend on this script behaving.
+          if aws s3api put-object \
+            --bucket "$AWS_LAMBDA_ARTIFACT_BUCKET" \
+            --key "$object_key" \
+            --body "$PACKAGE_DIRECTORY/function.zip" \
+            --checksum-sha256 "$ARTIFACT_CHECKSUM_BASE64" \
+            --if-none-match '*' \
+            --region "$AWS_REGION" \
+            --no-cli-pager >/dev/null 2>"$error_log"; then
+            echo "Published $object_key"
+            exit 0
+          fi
 
-            if [[ $status -eq 0 ]]; then
-              return 0
-            fi
-
-            if [[ "$response" == *"PreconditionFailed"* || "$response" == *"412"* ]]; then
-              echo "::error::Immutable Lambda release object already exists: $object_key"
-              return 1
-            fi
-
+          if ! grep -qE 'PreconditionFailed|412' "$error_log"; then
             echo "::error::Failed to publish Lambda release object: $object_key"
-            printf '%s\n' "$response" >&2
-            return "$status"
-          }
+            cat "$error_log" >&2
+            exit 1
+          fi
 
-          artifact_prefix="$SERVICE_NAME/$RELEASE_SHA"
-          publish_once "$PACKAGE_DIRECTORY/function.zip" "$artifact_prefix/function.zip"
-          publish_once "$PACKAGE_DIRECTORY/function.zip.sha256" "$artifact_prefix/function.zip.sha256"
+          # The object already exists. If it holds these exact bytes this is a
+          # re-run of an already successful release, which must succeed;
+          # otherwise the SHA has been published with different content and the
+          # immutability guarantee is broken.
+          existing_checksum=$(aws s3api head-object \
+            --bucket "$AWS_LAMBDA_ARTIFACT_BUCKET" \
+            --key "$object_key" \
+            --checksum-mode ENABLED \
+            --region "$AWS_REGION" \
+            --query 'ChecksumSHA256' \
+            --output text \
+            --no-cli-pager)
+
+          if [[ "$existing_checksum" != "$ARTIFACT_CHECKSUM_BASE64" ]]; then
+            echo "::error::$object_key is already published with a different checksum."
+            echo "::error::published=$existing_checksum built=$ARTIFACT_CHECKSUM_BASE64"
+            exit 1
+          fi
+
+          echo "$object_key already published with identical content; nothing to do."
