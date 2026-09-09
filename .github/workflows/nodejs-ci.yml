@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: .
+      has_dockerfile:
+        description: Whether the service ships a Dockerfile. Lambda services do not.
+        required: false
+        type: boolean
+        default: true
       dockerfile_path:
         description: Path to the service Dockerfile
         required: false
@@ -75,6 +80,7 @@ env:
 jobs:
   dockerfile-lint:
     name: Dockerfile Lint
+    if: inputs.has_dockerfile
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -172,7 +178,6 @@ jobs:
     name: SAST
     if: github.event_name == 'pull_request'
     needs:
-      - dockerfile-lint
       - formatting
       - linting
       - unit-tests
@@ -198,7 +203,6 @@ jobs:
     name: Integration Tests
     if: github.event_name == 'pull_request' && inputs.has_integration_tests == true && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
     needs:
-      - dockerfile-lint
       - formatting
       - linting
       - unit-tests
