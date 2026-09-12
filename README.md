@@ -21,6 +21,165 @@ Every CI workflow will eventually include:
 - Dependency scanning
 - Integration tests
 
+Jobs run in two phases. Static checks (formatting and linting), Dockerfile
+lint, unit tests and dependency scanning run in parallel on every push and pull
+request. On pull
+requests only, SAST runs after those pass, and integration tests run after SAST
+passes.
+
+```text
+push / pull_request:  dockerfile-lint  static-checks  unit-tests  dependency-scan
+pull_request only:                 sast  ->  integration-tests
+```
+
+## Node.js CI
+
+`nodejs-ci.yml` runs a fixed set of npm commands. The service decides which
+tools implement them.
+
+```text
+npm ci
+npm run format:check
+npm run lint
+npm test -- --coverage
+npm run test:integration      only when has_integration_tests is true
+```
+
+The service must be an npm project with a `package-lock.json`, and its
+`package.json` scripts must meet this contract:
+
+- `format:check` exits non-zero when formatting drifts.
+- `lint` exits non-zero on lint violations.
+- `test` runs the unit tests and, when passed `--coverage`, writes
+  `coverage/lcov.info`. The coverage report feeds the code-quality gate.
+- `test:integration` runs the integration tests. Only required when
+  `has_integration_tests` is `true`.
+
+Services created from the golden path ship with these scripts backed by
+Prettier, ESLint and Jest, which are the tools the platform supports. A team
+may swap a tool by changing the script in its own `package.json`; the workflow
+does not change. Other package managers are not supported by this workflow.
+
+### Service wiring
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@main
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      id-token: write
+    with:
+      has_integration_tests: true
+```
+
+The trigger shape matters. A pull request branch receives both `push` and
+`pull_request` events for every commit, so triggering on both runs the
+parallel jobs twice on the same commit. Triggering on `pull_request` plus
+`push` to `main` runs each commit once: feature branches are validated through
+their pull request, and `main` is validated after merge. To get CI on a branch
+before it is ready for review, open a draft pull request.
+
+`concurrency` cancels the previous run of the same branch when a new commit is
+pushed, so a fix pushed while SAST is still running does not pay for the
+superseded run.
+
+### Inputs
+
+| Input | Default | Notes |
+| --- | --- | --- |
+| `working_directory` | `.` | Directory containing `package.json`. |
+| `node_version` | `24` | |
+| `has_dockerfile` | `true` | Set to `false` for Lambda services. |
+| `dockerfile_path` | `./Dockerfile` | Relative to the repository root. |
+| `has_integration_tests` | `false` | |
+| `integration_test_working_directory` | `working_directory` | Directory containing the integration tests' `package.json`, if separate. |
+| `integration_test_vars` | `{}` | JSON object of non-secret environment variables. |
+
+### Repository configuration
+
+The caller must grant `security-events: write` and `actions: read` for SAST,
+and `id-token: write` for secret-backed integration tests. These are repository
+permissions, so they cannot be granted by the reusable workflow itself.
+
+Secret-backed integration tests also read two repository variables provisioned
+by the platform's Terraform: `AWS_INTEGRATION_TEST_ROLE_ARN` and `AWS_REGION`.
+The job fails with a clear error if either is missing.
+
+## Python CI
+
+`python-ci.yml` has the same job graph and the same shape of contract as the
+Node.js workflow. Python has no `package.json` scripts, so the indirection
+between "what the workflow runs" and "which tool runs" is a `Makefile`.
+
+```text
+pip install -r requirements.txt
+make format-check
+make lint
+make test
+make test-integration         only when has_integration_tests is true
+```
+
+The service must be a pip project with a `requirements.txt`, and its
+`Makefile` targets must meet this contract:
+
+- `format-check` exits non-zero when formatting drifts.
+- `lint` exits non-zero on lint violations.
+- `test` runs the unit tests and writes `coverage.xml`. The coverage report
+  feeds the code-quality gate.
+- `test-integration` runs the integration tests. Only required when
+  `has_integration_tests` is `true`.
+
+Services created from the golden path ship with this `Makefile`, backed by
+Black, Ruff and pytest, which are the tools the platform supports:
+
+```makefile
+.PHONY: format-check lint test test-integration
+
+format-check:
+	black --check .
+
+lint:
+	ruff check .
+
+test:
+	pytest -m "not integration" --cov=. --cov-report=xml --cov-report=term-missing
+
+test-integration:
+	pytest -m integration
+```
+
+A team may swap a tool by changing the target in its own `Makefile`; the
+workflow does not change. Other package managers are not supported by this
+workflow.
+
+The caller workflow is the same as the Node.js one, with
+`python-ci.yml` in place of `nodejs-ci.yml`. Inputs are the same, with
+`python_version` (default `3.13`) in place of `node_version`.
+
+Secret-backed integration tests (`.platform/integration-tests.yaml`) are
+Node.js-only for now; the Python workflow will gain them when the secret
+resolution moves into a shared action.
+
 ### Node.js integration-test secrets
 
 Node.js services declare integration-test secrets in

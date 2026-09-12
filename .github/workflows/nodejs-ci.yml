@@ -1,5 +1,27 @@
 name: Node.js CI
 
+# Job graph
+#
+#   every push and pull request (parallel):
+#     dockerfile-lint  static-checks  unit-tests  dependency-scan
+#
+#   pull requests only, after the jobs above pass:
+#     sast  ->  integration-tests
+#
+# dockerfile-lint is intentionally not a dependency of sast: it is skipped
+# for Lambda services, and a skipped dependency would skip sast as well.
+#
+# Contract
+#
+# The service is an npm project with a package-lock.json and these scripts:
+#   format:check       exits non-zero on formatting drift
+#   lint               exits non-zero on lint violations
+#   test               writes coverage/lcov.info when run with --coverage
+#   test:integration   only when has_integration_tests is true
+#
+# The workflow runs the scripts; the service decides which tools implement
+# them.
+
 on:
   workflow_call:
     inputs:
@@ -23,41 +45,11 @@ on:
         required: false
         type: string
         default: "24"
-      install_command:
-        description: Dependency installation command
-        required: false
-        type: string
-        default: npm ci
-      format_command:
-        description: Formatting validation command
-        required: false
-        type: string
-        default: npm run format:check
-      lint_command:
-        description: Lint command
-        required: false
-        type: string
-        default: npm run lint
-      unit_test_command:
-        description: Unit test command
-        required: false
-        type: string
-        default: npm test -- --coverage
       has_integration_tests:
         description: Whether integration tests are implemented
         required: false
         type: boolean
         default: false
-      integration_test_command:
-        description: Integration test command
-        required: false
-        type: string
-        default: npm run test:integration
-      integration_test_install_command:
-        description: Dependency installation command for integration tests. Defaults to install_command.
-        required: false
-        type: string
-        default: ''
       integration_test_working_directory:
         description: Directory where integration tests run. Defaults to working_directory.
         required: false
@@ -82,24 +74,26 @@ jobs:
     name: Dockerfile Lint
     if: inputs.has_dockerfile
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run Hadolint
         env:
           DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
         run: docker run --rm -i hadolint/hadolint:v2.15.1 < "$DOCKERFILE_PATH"
 
-  formatting:
-    name: Formatting
+  static-checks:
+    name: Format & Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           cache: npm
@@ -107,43 +101,28 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.install_command }}
+        run: npm ci
 
       - name: Check formatting
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.format_command }}
-
-  linting:
-    name: Linting
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ inputs.node_version }}
-          cache: npm
-          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.install_command }}
+        run: npm run format:check
 
       - name: Run linting
+        # Still report lint results when formatting fails, so both are fixed in one push.
+        if: ${{ !cancelled() }}
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.lint_command }}
+        run: npm run lint
 
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           cache: npm
@@ -151,18 +130,19 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.install_command }}
+        run: npm ci
 
       - name: Run unit tests
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.unit_test_command }}
+        run: npm test -- --coverage
 
   dependency-scan:
     name: Dependency Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run Trivy dependency scan
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
@@ -178,46 +158,43 @@ jobs:
     name: SAST
     if: github.event_name == 'pull_request'
     needs:
-      - formatting
-      - linting
+      - static-checks
       - unit-tests
       - dependency-scan
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
       actions: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           languages: javascript-typescript
 
       - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
 
   integration-tests:
     name: Integration Tests
     if: github.event_name == 'pull_request' && inputs.has_integration_tests == true && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
     needs:
-      - formatting
-      - linting
-      - unit-tests
-      - dependency-scan
       - sast
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           cache: npm
@@ -225,7 +202,7 @@ jobs:
 
       - name: Install integration test dependencies
         working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
-        run: ${{ inputs.integration_test_install_command != '' && inputs.integration_test_install_command || inputs.install_command }}
+        run: npm ci
 
       - name: Configure integration test variables
         if: inputs.integration_test_vars != '{}'
@@ -321,7 +298,7 @@ jobs:
 
       - name: Configure AWS integration test credentials
         if: env.INTEGRATION_TEST_SECRETS_CONFIGURED == 'true'
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: ${{ vars.AWS_INTEGRATION_TEST_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -387,4 +364,4 @@ jobs:
 
       - name: Run integration tests
         working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
-        run: ${{ inputs.integration_test_command }}
+        run: npm run test:integration
