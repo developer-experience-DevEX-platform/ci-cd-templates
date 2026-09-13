@@ -23,14 +23,19 @@ Every CI workflow will eventually include:
 
 Jobs run in two phases. Static checks (formatting and linting), Dockerfile
 lint, unit tests and dependency scanning run in parallel on every push and pull
-request. On pull
-requests only, SAST runs after those pass, and integration tests run after SAST
-passes.
+request. On pull requests only, SAST runs after those pass, and integration
+tests run after SAST passes.
 
 ```text
 push / pull_request:  dockerfile-lint  static-checks  unit-tests  dependency-scan
 pull_request only:                 sast  ->  integration-tests
 ```
+
+CI integration tests are hermetic. The suite starts the service's own
+dependencies on the runner (Postgres, Redis, LocalStack, and so on) with
+Testcontainers or Docker Compose. No cloud credentials or secrets are
+provided. Tests against a deployed staging or test environment — smoke,
+performance, regression — belong to CD after the service is deployed.
 
 ## Node.js CI
 
@@ -52,13 +57,25 @@ The service must be an npm project with a `package-lock.json`, and its
 - `lint` exits non-zero on lint violations.
 - `test` runs the unit tests and, when passed `--coverage`, writes
   `coverage/lcov.info`. The coverage report feeds the code-quality gate.
-- `test:integration` runs the integration tests. Only required when
-  `has_integration_tests` is `true`.
+- `test:integration` starts the suite's own dependencies and tests how the
+  service's components work together (write to a database, publish to a
+  queue). Only required when `has_integration_tests` is `true`. Docker must
+  be available; it already is on `ubuntu-latest`.
 
 Services created from the golden path ship with these scripts backed by
 Prettier, ESLint and Jest, which are the tools the platform supports. A team
 may swap a tool by changing the script in its own `package.json`; the workflow
 does not change. Other package managers are not supported by this workflow.
+
+The golden path ships a Postgres Testcontainers sample so
+`npm run test:integration` is the same command on a laptop with Docker
+running and in CI. The workflow does not install or configure containers;
+the suite does.
+
+To add S3, SQS, or other AWS APIs, the service adds
+`@testcontainers/localstack` and a test file under `test/integration/`. Jest
+picks it up automatically. The caller workflow does not change. The generated
+service README has the copy-paste steps.
 
 ### Service wiring
 
@@ -74,7 +91,6 @@ permissions:
   contents: read
   security-events: write
   actions: read
-  id-token: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -87,7 +103,6 @@ jobs:
       contents: read
       security-events: write
       actions: read
-      id-token: write
     with:
       has_integration_tests: true
 ```
@@ -111,19 +126,14 @@ superseded run.
 | `node_version` | `24` | |
 | `has_dockerfile` | `true` | Set to `false` for Lambda services. |
 | `dockerfile_path` | `./Dockerfile` | Relative to the repository root. |
-| `has_integration_tests` | `false` | |
-| `integration_test_working_directory` | `working_directory` | Directory containing the integration tests' `package.json`, if separate. |
-| `integration_test_vars` | `{}` | JSON object of non-secret environment variables. |
+| `has_integration_tests` | `false` | Set to `true` once the service has a `test:integration` script. |
+| `integration_test_vars` | `{}` | JSON object of non-secret environment variables, for example feature flags. |
 
 ### Repository configuration
 
-The caller must grant `security-events: write` and `actions: read` for SAST,
-and `id-token: write` for secret-backed integration tests. These are repository
-permissions, so they cannot be granted by the reusable workflow itself.
-
-Secret-backed integration tests also read two repository variables provisioned
-by the platform's Terraform: `AWS_INTEGRATION_TEST_ROLE_ARN` and `AWS_REGION`.
-The job fails with a clear error if either is missing.
+The caller must grant `security-events: write` and `actions: read` for SAST.
+These are repository permissions, so they cannot be granted by the reusable
+workflow itself. CI does not assume an AWS role and does not read secrets.
 
 ## Python CI
 
@@ -146,8 +156,10 @@ The service must be a pip project with a `requirements.txt`, and its
 - `lint` exits non-zero on lint violations.
 - `test` runs the unit tests and writes `coverage.xml`. The coverage report
   feeds the code-quality gate.
-- `test-integration` runs the integration tests. Only required when
-  `has_integration_tests` is `true`.
+- `test-integration` starts the suite's own dependencies and tests how the
+  service's components work together. Only required when
+  `has_integration_tests` is `true`. Docker must be available; it already is
+  on `ubuntu-latest`.
 
 Services created from the golden path ship with this `Makefile`, backed by
 Black, Ruff and pytest, which are the tools the platform supports:
@@ -174,38 +186,9 @@ workflow.
 
 The caller workflow is the same as the Node.js one, with
 `python-ci.yml` in place of `nodejs-ci.yml`. Inputs are the same, with
-`python_version` (default `3.13`) in place of `node_version`.
-
-Secret-backed integration tests (`.platform/integration-tests.yaml`) are
-Node.js-only for now; the Python workflow will gain them when the secret
-resolution moves into a shared action.
-
-### Node.js integration-test secrets
-
-Node.js services declare integration-test secrets in
-`.platform/integration-tests.yaml`:
-
-```yaml
-secrets:
-  - env: DB_PASSWORD
-    secret: integration-db
-    json_key: password
-```
-
-`env` is the environment variable exposed to the integration test, `secret` is
-a single logical secret name, and `json_key` is optional. For an `orders-api`
-repository, `integration-db` resolves to
-`orders-api/integration/integration-db`.
-
-Declarations are limited to 25 entries. Environment variable names must be
-valid and unique. Secret names may contain letters, digits, `_`, `-`, `.`, `+`,
-`=`, and `@`, but cannot contain `/`, `..`, or `:`. ARNs and paths are rejected,
-so service-owned configuration cannot select an arbitrary AWS secret ARN.
-
-When the file is absent, empty, or has no secret entries, integration tests run
-without AWS authentication. Secret-backed integration tests run only for
-same-repository pull requests and use the platform-provisioned OIDC role; pull
-requests from forks skip the entire integration-test job.
+`python_version` (default `3.13`) in place of `node_version`. The golden path
+will ship a Testcontainers sample so `make test-integration` is the same
+command locally and in CI.
 
 ## Node.js Lambda contract
 

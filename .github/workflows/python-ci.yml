@@ -23,8 +23,9 @@ name: Python CI
 # The workflow runs the targets; the service decides which tools implement
 # them.
 #
-# Secret-backed integration tests (.platform/integration-tests.yaml) are not
-# yet supported here; they will arrive with the shared integration-test action.
+# Integration tests are hermetic: the suite starts its own dependencies
+# (Testcontainers, Docker Compose) on the runner. No cloud credentials or
+# secrets are provided. Tests against deployed environments belong to CD.
 
 on:
   workflow_call:
@@ -54,11 +55,6 @@ on:
         required: false
         type: boolean
         default: false
-      integration_test_working_directory:
-        description: Directory where integration tests run. Defaults to working_directory.
-        required: false
-        type: string
-        default: ''
       integration_test_vars:
         description: JSON object of non-secret environment variables required by integration tests.
         required: false
@@ -183,7 +179,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    if: github.event_name == 'pull_request' && inputs.has_integration_tests == true && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+    if: github.event_name == 'pull_request' && inputs.has_integration_tests
     needs:
       - sast
     runs-on: ubuntu-latest
@@ -197,10 +193,10 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
           cache: pip
-          cache-dependency-path: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}/requirements.txt
+          cache-dependency-path: ${{ inputs.working_directory }}/requirements.txt
 
-      - name: Install integration test dependencies
-        working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
         run: pip install -r requirements.txt
 
       - name: Configure integration test variables
@@ -213,5 +209,5 @@ jobs:
             jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
 
       - name: Run integration tests
-        working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
+        working-directory: ${{ inputs.working_directory }}
         run: make test-integration
