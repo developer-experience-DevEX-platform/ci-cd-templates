@@ -83,9 +83,8 @@ service README has the copy-paste steps.
 name: CI
 
 on:
-  pull_request:
   push:
-    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
@@ -93,7 +92,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -107,16 +106,17 @@ jobs:
       has_integration_tests: true
 ```
 
-The trigger shape matters. A pull request branch receives both `push` and
-`pull_request` events for every commit, so triggering on both runs the
-parallel jobs twice on the same commit. Triggering on `pull_request` plus
-`push` to `main` runs each commit once: feature branches are validated through
-their pull request, and `main` is validated after merge. To get CI on a branch
-before it is ready for review, open a draft pull request.
+Every push to a feature branch runs the parallel jobs (format and lint, unit
+tests, dependency scan, Dockerfile lint). That is the first check: confirm
+those pass before opening a pull request. Opening a pull request then runs
+SAST and integration tests. A push to `main` runs the parallel jobs again
+after merge.
 
-`concurrency` cancels the previous run of the same branch when a new commit is
-pushed, so a fix pushed while SAST is still running does not pay for the
-superseded run.
+Once a pull request is open, the same commit produces both a `push` and a
+`pull_request` event, so the parallel jobs run twice. That is the cost of
+having feature-branch CI without a pull request. `concurrency` cancels a
+superseded run of the same branch; it does not collapse those two events into
+one.
 
 ### Inputs
 
