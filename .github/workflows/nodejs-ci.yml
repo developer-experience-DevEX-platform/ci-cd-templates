@@ -1,5 +1,31 @@
 name: Node.js CI
 
+# Job graph
+#
+#   every push and pull request (parallel):
+#     dockerfile-lint  static-checks  unit-tests  dependency-scan
+#
+#   pull requests only, after the jobs above pass:
+#     sast  ->  integration-tests
+#
+# dockerfile-lint is intentionally not a dependency of sast: it is skipped
+# for Lambda services, and a skipped dependency would skip sast as well.
+#
+# Contract
+#
+# The service is an npm project with a package-lock.json and these scripts:
+#   format:check       exits non-zero on formatting drift
+#   lint               exits non-zero on lint violations
+#   test               writes coverage/lcov.info when run with --coverage
+#   test:integration   only when has_integration_tests is true
+#
+# The workflow runs the scripts; the service decides which tools implement
+# them.
+#
+# Integration tests are hermetic: the suite starts its own dependencies
+# (Testcontainers, Docker Compose) on the runner. No cloud credentials or
+# secrets are provided. Tests against deployed environments belong to CD.
+
 on:
   workflow_call:
     inputs:
@@ -23,46 +49,11 @@ on:
         required: false
         type: string
         default: "24"
-      install_command:
-        description: Dependency installation command
-        required: false
-        type: string
-        default: npm ci
-      format_command:
-        description: Formatting validation command
-        required: false
-        type: string
-        default: npm run format:check
-      lint_command:
-        description: Lint command
-        required: false
-        type: string
-        default: npm run lint
-      unit_test_command:
-        description: Unit test command
-        required: false
-        type: string
-        default: npm test -- --coverage
       has_integration_tests:
         description: Whether integration tests are implemented
         required: false
         type: boolean
         default: false
-      integration_test_command:
-        description: Integration test command
-        required: false
-        type: string
-        default: npm run test:integration
-      integration_test_install_command:
-        description: Dependency installation command for integration tests. Defaults to install_command.
-        required: false
-        type: string
-        default: ''
-      integration_test_working_directory:
-        description: Directory where integration tests run. Defaults to working_directory.
-        required: false
-        type: string
-        default: ''
       integration_test_vars:
         description: JSON object of non-secret environment variables required by integration tests.
         required: false
@@ -82,24 +73,26 @@ jobs:
     name: Dockerfile Lint
     if: inputs.has_dockerfile
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run Hadolint
         env:
           DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
         run: docker run --rm -i hadolint/hadolint:v2.15.1 < "$DOCKERFILE_PATH"
 
-  formatting:
-    name: Formatting
+  static-checks:
+    name: Format & Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           cache: npm
@@ -107,43 +100,28 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.install_command }}
+        run: npm ci
 
       - name: Check formatting
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.format_command }}
-
-  linting:
-    name: Linting
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ inputs.node_version }}
-          cache: npm
-          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.install_command }}
+        run: npm run format:check
 
       - name: Run linting
+        # Still report lint results when formatting fails, so both are fixed in one push.
+        if: ${{ !cancelled() }}
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.lint_command }}
+        run: npm run lint
 
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           cache: npm
@@ -151,18 +129,19 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.install_command }}
+        run: npm ci
 
       - name: Run unit tests
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.unit_test_command }}
+        run: npm test -- --coverage
 
   dependency-scan:
     name: Dependency Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run Trivy dependency scan
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
@@ -178,54 +157,48 @@ jobs:
     name: SAST
     if: github.event_name == 'pull_request'
     needs:
-      - formatting
-      - linting
+      - static-checks
       - unit-tests
       - dependency-scan
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
       actions: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           languages: javascript-typescript
 
       - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
 
   integration-tests:
     name: Integration Tests
-    if: github.event_name == 'pull_request' && inputs.has_integration_tests == true && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+    if: github.event_name == 'pull_request' && inputs.has_integration_tests
     needs:
-      - formatting
-      - linting
-      - unit-tests
-      - dependency-scan
       - sast
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 30
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           cache: npm
           cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
 
-      - name: Install integration test dependencies
-        working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
-        run: ${{ inputs.integration_test_install_command != '' && inputs.integration_test_install_command || inputs.install_command }}
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: npm ci
 
       - name: Configure integration test variables
         if: inputs.integration_test_vars != '{}'
@@ -234,157 +207,8 @@ jobs:
         shell: bash
         run: |
           echo "$INTEGRATION_TEST_VARS" |
-          jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
-
-      - name: Detect integration test secret declaration
-        id: integration-secret-declaration
-        shell: bash
-        run: |
-          if [[ -f .platform/integration-tests.yaml ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "INTEGRATION_TEST_SECRETS_CONFIGURED=false" >> "$GITHUB_ENV"
-          fi
-
-      - name: Install yq
-        if: steps.integration-secret-declaration.outputs.exists == 'true'
-        env:
-          YQ_VERSION: v4.53.3
-        shell: bash
-        run: |
-          sudo curl --fail --location --silent --show-error \
-            "https://github.com/mikefarah/yq/releases/download/$YQ_VERSION/yq_linux_amd64" \
-            --output /usr/local/bin/yq
-          sudo chmod +x /usr/local/bin/yq
-
-      - name: Validate integration test secret declaration
-        if: steps.integration-secret-declaration.outputs.exists == 'true'
-        env:
-          AWS_INTEGRATION_TEST_ROLE_ARN: ${{ vars.AWS_INTEGRATION_TEST_ROLE_ARN }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          declaration_file=.platform/integration-tests.yaml
-          normalized_file="$RUNNER_TEMP/integration-test-secrets.json"
-
-          if ! yq --output-format=json --indent=0 '.' "$declaration_file" > "$RUNNER_TEMP/integration-tests-document.json"; then
-            echo "::error::$declaration_file is not valid YAML."
-            exit 1
-          fi
-
-          if ! jq -e '
-            (if . == null then {} else . end) as $document |
-            ($document | type == "object") and
-            (($document | keys - ["secrets"]) | length == 0) and
-            (($document.secrets == null) or ($document.secrets | type == "array")) and
-            (($document.secrets // []) | length <= 25) and
-            all(($document.secrets // [])[];
-              type == "object" and
-              ((keys - ["env", "secret", "json_key"]) | length == 0) and
-              (.env | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$")) and
-              (.secret | type == "string" and
-                test("^[A-Za-z0-9][A-Za-z0-9_+=.@-]*$") and
-                (contains(":") | not) and
-                (contains("..") | not)) and
-              ((has("json_key") | not) or (.json_key | type == "string" and length > 0))
-            ) and
-            (([($document.secrets // [])[].env] | length) ==
-              ([($document.secrets // [])[].env] | unique | length))
-          ' "$RUNNER_TEMP/integration-tests-document.json" > /dev/null; then
-            echo "::error::$declaration_file must contain at most 25 unique env mappings with single logical secret names and optional json_key values."
-            exit 1
-          fi
-
-          jq -c 'if . == null then [] else (.secrets // []) end' \
-            "$RUNNER_TEMP/integration-tests-document.json" > "$normalized_file"
-
-          declaration_count="$(jq 'length' "$normalized_file")"
-          if [[ "$declaration_count" -eq 0 ]]; then
-            echo "INTEGRATION_TEST_SECRETS_CONFIGURED=false" >> "$GITHUB_ENV"
-            exit 0
-          fi
-
-          if [[ -z "$AWS_INTEGRATION_TEST_ROLE_ARN" ]]; then
-            echo "::error::AWS_INTEGRATION_TEST_ROLE_ARN is not configured for this repository."
-            exit 1
-          fi
-
-          if [[ -z "$AWS_REGION" ]]; then
-            echo "::error::AWS_REGION is not configured for this repository."
-            exit 1
-          fi
-
-          echo "INTEGRATION_TEST_SECRETS_CONFIGURED=true" >> "$GITHUB_ENV"
-
-      - name: Configure AWS integration test credentials
-        if: env.INTEGRATION_TEST_SECRETS_CONFIGURED == 'true'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.AWS_INTEGRATION_TEST_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          role-session-name: integration-tests-${{ github.run_id }}
-
-      - name: Fetch integration test secrets
-        if: env.INTEGRATION_TEST_SECRETS_CONFIGURED == 'true'
-        env:
-          SERVICE_NAME: ${{ github.event.repository.name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          jq -c '.[]' "$RUNNER_TEMP/integration-test-secrets.json" |
-          while IFS= read -r mapping; do
-            env_name="$(jq -r '.env' <<< "$mapping")"
-            relative_secret="$(jq -r '.secret' <<< "$mapping")"
-            json_key="$(jq -r '.json_key // empty' <<< "$mapping")"
-            secret_id="$SERVICE_NAME/integration/$relative_secret"
-
-            if ! secret_string="$(aws secretsmanager get-secret-value \
-              --secret-id "$secret_id" \
-              --query SecretString \
-              --output text)"; then
-              echo "::error::Unable to read the requested Secrets Manager secret: $secret_id"
-              exit 1
-            fi
-
-            if [[ "$secret_string" == "None" ]]; then
-              echo "::error::The requested secret does not contain SecretString: $secret_id"
-              exit 1
-            fi
-
-            secret_value="$secret_string"
-            if [[ -n "$json_key" ]]; then
-              if ! secret_value="$(jq -er --arg key "$json_key" '
-                if type == "object" and has($key) then
-                  .[$key] | if type == "string" then . else tostring end
-                else
-                  error("requested json_key does not exist")
-                end
-              ' <<< "$secret_string")"; then
-                echo "::error::json_key '$json_key' does not exist in secret: $secret_id"
-                exit 1
-              fi
-            fi
-
-            masked_value="${secret_value//'%'/'%25'}"
-            masked_value="${masked_value//$'\r'/'%0D'}"
-            masked_value="${masked_value//$'\n'/'%0A'}"
-            printf '::add-mask::%s\n' "$masked_value"
-
-            delimiter="SECRET_$(cat /proc/sys/kernel/random/uuid)"
-            while grep -Fxq "$delimiter" <<< "$secret_value"; do
-              delimiter="SECRET_$(cat /proc/sys/kernel/random/uuid)"
-            done
-            {
-              printf '%s<<%s\n' "$env_name" "$delimiter"
-              printf '%s\n' "$secret_value"
-              printf '%s\n' "$delimiter"
-            } >> "$GITHUB_ENV"
-          done
+            jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
 
       - name: Run integration tests
-        working-directory: ${{ inputs.integration_test_working_directory != '' && inputs.integration_test_working_directory || inputs.working_directory }}
-        run: ${{ inputs.integration_test_command }}
+        working-directory: ${{ inputs.working_directory }}
+        run: npm run test:integration

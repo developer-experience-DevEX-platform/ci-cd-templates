@@ -21,32 +21,174 @@ Every CI workflow will eventually include:
 - Dependency scanning
 - Integration tests
 
-### Node.js integration-test secrets
+Jobs run in two phases. Static checks (formatting and linting), Dockerfile
+lint, unit tests and dependency scanning run in parallel on every push and pull
+request. On pull requests only, SAST runs after those pass, and integration
+tests run after SAST passes.
 
-Node.js services declare integration-test secrets in
-`.platform/integration-tests.yaml`:
-
-```yaml
-secrets:
-  - env: DB_PASSWORD
-    secret: integration-db
-    json_key: password
+```text
+push / pull_request:  dockerfile-lint  static-checks  unit-tests  dependency-scan
+pull_request only:                 sast  ->  integration-tests
 ```
 
-`env` is the environment variable exposed to the integration test, `secret` is
-a single logical secret name, and `json_key` is optional. For an `orders-api`
-repository, `integration-db` resolves to
-`orders-api/integration/integration-db`.
+CI integration tests are hermetic. The suite starts the service's own
+dependencies on the runner (Postgres, Redis, LocalStack, and so on) with
+Testcontainers or Docker Compose. No cloud credentials or secrets are
+provided. Tests against a deployed staging or test environment — smoke,
+performance, regression — belong to CD after the service is deployed.
 
-Declarations are limited to 25 entries. Environment variable names must be
-valid and unique. Secret names may contain letters, digits, `_`, `-`, `.`, `+`,
-`=`, and `@`, but cannot contain `/`, `..`, or `:`. ARNs and paths are rejected,
-so service-owned configuration cannot select an arbitrary AWS secret ARN.
+## Node.js CI
 
-When the file is absent, empty, or has no secret entries, integration tests run
-without AWS authentication. Secret-backed integration tests run only for
-same-repository pull requests and use the platform-provisioned OIDC role; pull
-requests from forks skip the entire integration-test job.
+`nodejs-ci.yml` runs a fixed set of npm commands. The service decides which
+tools implement them.
+
+```text
+npm ci
+npm run format:check
+npm run lint
+npm test -- --coverage
+npm run test:integration      only when has_integration_tests is true
+```
+
+The service must be an npm project with a `package-lock.json`, and its
+`package.json` scripts must meet this contract:
+
+- `format:check` exits non-zero when formatting drifts.
+- `lint` exits non-zero on lint violations.
+- `test` runs the unit tests and, when passed `--coverage`, writes
+  `coverage/lcov.info`. The coverage report feeds the code-quality gate.
+- `test:integration` starts the suite's own dependencies and tests how the
+  service's components work together (write to a database, publish to a
+  queue). Only required when `has_integration_tests` is `true`. Docker must
+  be available; it already is on `ubuntu-latest`.
+
+Services created from the golden path ship with these scripts backed by
+Prettier, ESLint and Jest, which are the tools the platform supports. A team
+may swap a tool by changing the script in its own `package.json`; the workflow
+does not change. Other package managers are not supported by this workflow.
+
+The golden path ships a Postgres Testcontainers sample so
+`npm run test:integration` is the same command on a laptop with Docker
+running and in CI. The workflow does not install or configure containers;
+the suite does.
+
+To add S3, SQS, or other AWS APIs, the service adds
+`@testcontainers/localstack` and a test file under `test/integration/`. Jest
+picks it up automatically. The caller workflow does not change. The generated
+service README has the copy-paste steps.
+
+### Service wiring
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@main
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      has_integration_tests: true
+```
+
+The trigger shape matters. A pull request branch receives both `push` and
+`pull_request` events for every commit, so triggering on both runs the
+parallel jobs twice on the same commit. Triggering on `pull_request` plus
+`push` to `main` runs each commit once: feature branches are validated through
+their pull request, and `main` is validated after merge. To get CI on a branch
+before it is ready for review, open a draft pull request.
+
+`concurrency` cancels the previous run of the same branch when a new commit is
+pushed, so a fix pushed while SAST is still running does not pay for the
+superseded run.
+
+### Inputs
+
+| Input | Default | Notes |
+| --- | --- | --- |
+| `working_directory` | `.` | Directory containing `package.json`. |
+| `node_version` | `24` | |
+| `has_dockerfile` | `true` | Set to `false` for Lambda services. |
+| `dockerfile_path` | `./Dockerfile` | Relative to the repository root. |
+| `has_integration_tests` | `false` | Set to `true` once the service has a `test:integration` script. |
+| `integration_test_vars` | `{}` | JSON object of non-secret environment variables, for example feature flags. |
+
+### Repository configuration
+
+The caller must grant `security-events: write` and `actions: read` for SAST.
+These are repository permissions, so they cannot be granted by the reusable
+workflow itself. CI does not assume an AWS role and does not read secrets.
+
+## Python CI
+
+`python-ci.yml` has the same job graph and the same shape of contract as the
+Node.js workflow. Python has no `package.json` scripts, so the indirection
+between "what the workflow runs" and "which tool runs" is a `Makefile`.
+
+```text
+pip install -r requirements.txt
+make format-check
+make lint
+make test
+make test-integration         only when has_integration_tests is true
+```
+
+The service must be a pip project with a `requirements.txt`, and its
+`Makefile` targets must meet this contract:
+
+- `format-check` exits non-zero when formatting drifts.
+- `lint` exits non-zero on lint violations.
+- `test` runs the unit tests and writes `coverage.xml`. The coverage report
+  feeds the code-quality gate.
+- `test-integration` starts the suite's own dependencies and tests how the
+  service's components work together. Only required when
+  `has_integration_tests` is `true`. Docker must be available; it already is
+  on `ubuntu-latest`.
+
+Services created from the golden path ship with this `Makefile`, backed by
+Black, Ruff and pytest, which are the tools the platform supports:
+
+```makefile
+.PHONY: format-check lint test test-integration
+
+format-check:
+	black --check .
+
+lint:
+	ruff check .
+
+test:
+	pytest -m "not integration" --cov=. --cov-report=xml --cov-report=term-missing
+
+test-integration:
+	pytest -m integration
+```
+
+A team may swap a tool by changing the target in its own `Makefile`; the
+workflow does not change. Other package managers are not supported by this
+workflow.
+
+The caller workflow is the same as the Node.js one, with
+`python-ci.yml` in place of `nodejs-ci.yml`. Inputs are the same, with
+`python_version` (default `3.13`) in place of `node_version`. The golden path
+will ship a Testcontainers sample so `make test-integration` is the same
+command locally and in CI.
 
 ## Node.js Lambda contract
 
