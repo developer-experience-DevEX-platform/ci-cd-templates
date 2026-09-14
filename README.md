@@ -23,12 +23,12 @@ Every CI workflow will eventually include:
 
 Jobs run in two phases. Static checks (formatting and linting), Dockerfile
 lint, unit tests and dependency scanning run in parallel on every push and pull
-request. On pull requests only, SAST runs after those pass, and integration
-tests run after SAST passes.
+request. On pull requests only, SonarQube runs after those pass, and integration
+tests run after the quality gate passes.
 
 ```text
 push / pull_request:  dockerfile-lint  static-checks  unit-tests  dependency-scan
-pull_request only:                 sast  ->  integration-tests
+pull_request only:                 sonarqube  ->  integration-tests
 ```
 
 CI integration tests are hermetic. The suite starts the service's own
@@ -88,8 +88,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
-  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
@@ -100,8 +98,7 @@ jobs:
     uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@main
     permissions:
       contents: read
-      security-events: write
-      actions: read
+    secrets: inherit
     with:
       has_integration_tests: true
 ```
@@ -109,8 +106,8 @@ jobs:
 Every push to a feature branch runs the parallel jobs (format and lint, unit
 tests, dependency scan, Dockerfile lint). That is the first check: confirm
 those pass before opening a pull request. Opening a pull request then runs
-SAST and integration tests. A push to `main` runs the parallel jobs again
-after merge.
+SonarQube (quality gate) and integration tests. A push to `main` runs the
+parallel jobs again after merge.
 
 Once a pull request is open, the same commit produces both a `push` and a
 `pull_request` event, so the parallel jobs run twice. That is the cost of
@@ -131,9 +128,19 @@ one.
 
 ### Repository configuration
 
-The caller must grant `security-events: write` and `actions: read` for SAST.
-These are repository permissions, so they cannot be granted by the reusable
-workflow itself. CI does not assume an AWS role and does not read secrets.
+The caller must pass `secrets: inherit` so the org secret `SONAR_TOKEN` reaches
+the reusable workflow. SonarCloud organization is
+`developer-experience-devex-platform`. The project key is the GitHub
+repository name. The first analysis creates the SonarCloud project when
+auto-provisioning is enabled; otherwise create a project with that same key.
+
+Unit tests must write `coverage/lcov.info`. The golden-path Jest config does
+this when `npm test -- --coverage` runs. The SonarQube job fails if that file
+is missing or if the organization quality gate fails.
+
+Install the SonarQube Cloud GitHub app on the organization so pull requests
+get a Quality Gate comment. Turn off Automatic Analysis for CI-scanned
+projects.
 
 ## Python CI
 
