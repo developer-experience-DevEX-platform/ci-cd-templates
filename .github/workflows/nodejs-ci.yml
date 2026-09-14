@@ -6,7 +6,9 @@ name: Node.js CI
 #     dockerfile-lint  static-checks  unit-tests  dependency-scan
 #
 #   pull requests only, after the jobs above pass:
-#     sast (SonarQube)  ->  integration-tests
+#     integration-tests
+#   push to main only (temporary, SonarCloud Free):
+#     sast (SonarQube)
 #
 # dockerfile-lint is intentionally not a dependency of sast: it is skipped
 # for Lambda services, and a skipped dependency would skip sast as well.
@@ -167,7 +169,9 @@ jobs:
 
   sast:
     name: SonarQube
-    if: github.event_name == 'pull_request'
+    # Temporary: SonarCloud Free analyzes the main branch only. Revert to
+    # github.event_name == 'pull_request' after the paid-plan / PR check.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - static-checks
       - unit-tests
@@ -209,7 +213,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    if: github.event_name == 'pull_request' && inputs.has_integration_tests
+    if: github.event_name == 'pull_request' && inputs.has_integration_tests && (needs.sast.result == 'success' || needs.sast.result == 'skipped')
     needs:
       - sast
     runs-on: ubuntu-latest
