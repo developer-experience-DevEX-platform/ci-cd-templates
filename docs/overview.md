@@ -66,9 +66,13 @@ concurrency:
 
 ## What belongs in CI
 
-Integration tests are **hermetic**. The suite starts its own dependencies on
-the runner (Postgres, Redis, LocalStack, and so on) with Testcontainers or
-Compose. CI does not inject cloud credentials.
+The platform integration-test job is **hermetic**. The suite starts its own
+dependencies on the runner (Postgres, Redis, LocalStack, and so on) with
+Testcontainers or Compose. That job does not inject cloud credentials.
+
+A team can leave `has_integration_tests: false` and add their own
+integration job in the caller. They own that stage: secrets, runners, and
+reliability. The reusable workflow does not grow inputs to support it.
 
 Smoke, performance, and regression tests against a deployed environment belong
 in CD, after the service is deployed.

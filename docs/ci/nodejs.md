@@ -70,7 +70,7 @@ Lambda services set `has_dockerfile: false`.
 | `node_version` | `24` | |
 | `has_dockerfile` | `true` | Set to `false` for Lambda. |
 | `dockerfile_path` | `./Dockerfile` | Relative to the repository root. |
-| `has_integration_tests` | `false` | Set to `true` once `test:integration` exists. |
+| `has_integration_tests` | `false` | Set to `true` for the platform job. Leave `false` to skip it or to own a separate job in the caller. |
 | `integration_test_vars` | `{}` | JSON object of non-secret environment variables. |
 
 Shared input meaning: [CI standard](README.md).

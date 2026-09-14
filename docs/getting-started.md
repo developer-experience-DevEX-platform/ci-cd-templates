@@ -37,8 +37,10 @@ jobs:
 **Python** — same file, with `python-ci.yml` instead of `nodejs-ci.yml`.
 
 `secrets: inherit` is required so the org `SONAR_TOKEN` reaches the reusable
-workflow. Leave `has_integration_tests` as `false` until the service has an
-integration suite.
+workflow. Set `has_integration_tests: true` when the service implements the
+platform integration command. Leave it `false` to skip that job, including
+when the team adds their own integration job in this caller — they own that
+stage. See [integration tests](ci/integration-tests.md).
 
 Full inputs and the command contract: [Node.js](ci/nodejs.md), [Python](ci/python.md).
 
