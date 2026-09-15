@@ -36,6 +36,10 @@ Runtime version (`node_version`, `python_version`, …) is language-specific.
 Callers pass `secrets: inherit`. The reusable workflow requires `SONAR_TOKEN`
 from the GitHub organization. Teams do not create a per-repo token.
 
+The CI job is `permissions: contents: read` in every caller, including the
+`ci` job inside `release.yml`. OIDC (`id-token: write`) is only for
+container publish, not for CI.
+
 [SonarQube for teams](sonarqube.md) · [Platform setup](../platform.md)
 
 ## Customize in the service, not the caller

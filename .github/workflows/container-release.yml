@@ -1,16 +1,17 @@
 # Container Release
 #
-#   always:
-#     build-image  ->  vulnerability-scan, container-compliance  ->  sbom
+#   pull_request:
+#     build-image  ->  vulnerability-scan, container-compliance
 #
-#   when publish_image is true, after sbom:
-#     publish-ecr
+#   push to main:
+#     build-image  ->  vulnerability-scan, container-compliance  ->  sbom  ->  publish-ecr
 #
-# The same image.tar is scanned and published. Callers pass publish_image:
-# false on pull requests (validate only) and true on main (publish to ECR).
+# The same image.tar is scanned and (on main) published. The template decides
+# when to generate an SBOM and push to ECR; callers do not pass a publish flag.
 # image_tag must be a 40-character Git SHA. latest is forbidden.
 #
-# Platform repository variables (not workflow inputs) for publish:
+# Call ci.yml only on pull_request. Call release.yml on push to main.
+# Platform repository variables for publish:
 #   AWS_REGION, AWS_RELEASE_ROLE_ARN, ECR_REPOSITORY
 #
 name: Container Release
@@ -38,11 +39,6 @@ on:
         required: false
         type: string
         default: ${{ github.sha }}
-      publish_image:
-        description: Whether the validated image should be published to ECR. Opt in; pull requests must not publish.
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -151,6 +147,7 @@ jobs:
 
   sbom:
     name: Generate SBOM
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - vulnerability-scan
       - container-compliance
@@ -179,7 +176,7 @@ jobs:
 
   publish-ecr:
     name: Publish to ECR
-    if: inputs.publish_image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - sbom
     runs-on: ubuntu-latest

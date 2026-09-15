@@ -2,7 +2,7 @@
 
 CI answers: is this change safe to merge? It does not publish artifacts or
 deploy. Pull-request callers may run [container release](cd/container-release.md)
-with `publish_image: false` to build and scan the image without pushing it.
+to build and scan the image. Publish happens only on push to `main`.
 
 ## Job graph
 

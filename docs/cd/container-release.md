@@ -2,24 +2,32 @@
 
 Workflow: `.github/workflows/container-release.yml`
 
-Builds one image, scans **that** image, then optionally publishes it to ECR
-as an immutable Git SHA tag. The same `image.tar` is what Trivy, Dockle, the
-SBOM, and ECR see. The workflow does not deploy.
+Builds one image and scans **that** image. On push to `main` it also writes
+an SBOM and publishes the same tarball to ECR as an immutable Git SHA tag.
+The workflow does not deploy.
+
+The template decides when SBOM and publish run. Callers do not pass a
+publish flag.
 
 ## Job graph
 
 ```text
-build-image  ->  vulnerability-scan, container-compliance  ->  sbom
-publish_image true:                                         ->  publish-ecr
+pull_request:   build-image  ->  trivy, dockle
+push to main:   build-image  ->  trivy, dockle  ->  sbom  ->  publish-ecr
 ```
 
-| Job | What it enforces |
-| --- | --- |
-| Build image | `docker build` of the service Dockerfile. Tag must be a 40-character SHA. |
-| Trivy | `HIGH` and `CRITICAL` vulnerabilities fail the job. Unfixed issues are ignored. |
-| Dockle | Container best-practice findings at `warn` and above fail the job. |
-| SBOM | CycloneDX from the scanned image. Runs only if both scans pass. |
-| Publish to ECR | OIDC into the service release role. Tag is write-once. Skipped when `publish_image` is `false`. |
+Two Docker builds on purpose. The PR image and the `main` image are
+different commits and different bytes. PR proves the Dockerfile builds and
+is clean. `main` produces the SHA you tag in ECR, scans **that** tarball,
+then publishes it.
+
+| Job | PR | `main` | What it enforces |
+| --- | --- | --- | --- |
+| Build image | yes | yes | `docker build`. Tag must be a 40-character SHA. |
+| Trivy | yes | yes | `HIGH` and `CRITICAL` fail. Unfixed issues are ignored. |
+| Dockle | yes | yes | Findings at `warn` and above fail. |
+| SBOM | no | yes | CycloneDX of the image you ship. |
+| Publish to ECR | no | yes | OIDC into the service release role. Tag is write-once. |
 
 ## What the service must provide
 
@@ -33,10 +41,13 @@ still documented as repository-root relative; if `working_directory` is not
 
 ## Callers
 
-Two callers. Publishing is opt-in.
+Two files. Keep them separate so a merge to `main` does not run this
+workflow twice.
 
-**Pull request — validate, do not publish.** Put this next to CI in
-`.github/workflows/ci.yml`. `publish_image` defaults to `false`.
+**Pull request — build and scan only.** In `.github/workflows/ci.yml` the
+job must stay limited to pull requests. `ci.yml` also fires on push to
+`main`; without this `if`, that push would publish, then `release.yml`
+would try to publish the same SHA and fail the immutable-tag check.
 
 ```yaml
   container-validation:
@@ -47,7 +58,7 @@ Two callers. Publishing is opt-in.
     uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@main
 ```
 
-**Push to `main` — publish.** Separate workflow, after CI:
+**Push to `main` — build, scan, SBOM, publish.** Separate workflow:
 
 ```yaml
 name: Release
@@ -75,8 +86,6 @@ jobs:
       contents: read
       id-token: write
     uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@main
-    with:
-      publish_image: true
 ```
 
 Python services use `python-ci.yml` in the `ci` job. Lambda services omit
@@ -84,6 +93,27 @@ this workflow.
 
 `image_name` defaults to the repository name. `image_tag` defaults to
 `github.sha`. Pass them only when those defaults are wrong.
+
+`workflow_dispatch` on `release.yml` does not publish. Publish is push to
+`main` only.
+
+## Permissions
+
+The CI job is the same in `ci.yml` and in `release.yml`:
+
+```yaml
+permissions:
+  contents: read
+secrets: inherit
+```
+
+Do not put `security-events: write`, `actions: read`, or `id-token: write`
+on CI. Those were for CodeQL. Sonar only needs `SONAR_TOKEN` through
+`secrets: inherit`.
+
+`id-token: write` belongs on the job that publishes to ECR. `release.yml`
+sets it at workflow level for that reason. The `ci` job must still set
+`contents: read` explicitly, or it would inherit OIDC from the workflow.
 
 ## Inputs
 
@@ -93,7 +123,6 @@ this workflow.
 | `dockerfile_path` | `Dockerfile` | Relative to `working_directory`. |
 | `image_name` | repository name | Local tag only. ECR uses `vars.ECR_REPOSITORY`. |
 | `image_tag` | `github.sha` | Must be a 40-character Git SHA. `latest` is rejected. |
-| `publish_image` | `false` | Set to `true` only from `main`. |
 
 Retention of the image tarball, scan reports, and SBOM is fixed by the
 platform (1 / 30 / 90 days). It is not an input.
@@ -109,8 +138,7 @@ inputs, and GitHub OIDC — not long-lived AWS keys:
 
 Platform provisioning (Backstage / Terraform) sets these. Teams do not
 create the ECR repository or the IAM role. If they are missing, publish
-fails with a clear error; PR validation (`publish_image: false`) still
-runs.
+fails with a clear error; PR build and scan still run.
 
 The image in ECR is:
 

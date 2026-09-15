@@ -11,7 +11,7 @@ after those templates are reviewed.
 1. [Getting started](docs/getting-started.md) — paste a CI caller and meet the contract
 2. [Overview](docs/overview.md) — job graph, triggers, what belongs in CI
 3. Your language: [Node.js](docs/ci/nodejs.md) or [Python](docs/ci/python.md)
-4. [Container release](docs/cd/container-release.md) — build, scan, optionally publish to ECR
+4. [Container release](docs/cd/container-release.md) — PR build and scan; publish on push to `main`
 
 ## CI
 

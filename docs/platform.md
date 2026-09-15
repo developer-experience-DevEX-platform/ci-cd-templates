@@ -78,5 +78,6 @@ The reusable workflow assumes the role with GitHub OIDC
 (`id-token: write` on the publish job). ECR image tags are immutable.
 Trust is repository- and branch-scoped (`refs/heads/main`).
 
-Teams call the workflow with `publish_image: false` on PRs (no AWS) and
-`true` on `main`. Details: [container release](cd/container-release.md).
+The template publishes only on `push` to `main`. PR callers must keep
+`if: github.event_name == 'pull_request'` so `ci.yml` does not publish on
+merge. Details: [container release](cd/container-release.md).
