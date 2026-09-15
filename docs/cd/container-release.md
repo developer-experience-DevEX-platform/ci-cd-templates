@@ -107,10 +107,6 @@ permissions:
 secrets: inherit
 ```
 
-Do not put `security-events: write`, `actions: read`, or `id-token: write`
-on CI. Those were for CodeQL. Sonar only needs `SONAR_TOKEN` through
-`secrets: inherit`.
-
 `id-token: write` belongs on the job that publishes to ECR. `release.yml`
 sets it at workflow level for that reason. The `ci` job must still set
 `contents: read` explicitly, or it would inherit OIDC from the workflow.
