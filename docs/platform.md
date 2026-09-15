@@ -1,7 +1,9 @@
 # Platform
 
-For people who maintain these templates and the GitHub / SonarCloud org.
-Teams adopting CI can skip this page; use [getting started](getting-started.md).
+For people who maintain these templates and the GitHub / SonarCloud / AWS
+org. Teams adopting CI can skip this page; use
+[getting started](getting-started.md). Container publish variables are
+summarized here so teams know they are provisioned, not hand-copied.
 
 ## Pinning
 
@@ -62,3 +64,19 @@ if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 Revert to `github.event_name == 'pull_request'` when PR analysis is available.
 Callers do not change. Integration tests already allow `needs.sast.result ==
 'skipped'` so PRs keep running while this exception is in place.
+
+## Container release variables
+
+Set per repository by Terraform (`service-container-release`), not by the
+team:
+
+- `AWS_REGION`
+- `AWS_RELEASE_ROLE_ARN`
+- `ECR_REPOSITORY`
+
+The reusable workflow assumes the role with GitHub OIDC
+(`id-token: write` on the publish job). ECR image tags are immutable.
+Trust is repository- and branch-scoped (`refs/heads/main`).
+
+Teams call the workflow with `publish_image: false` on PRs (no AWS) and
+`true` on `main`. Details: [container release](cd/container-release.md).

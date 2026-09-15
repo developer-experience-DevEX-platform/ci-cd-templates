@@ -74,3 +74,4 @@ only; see [overview](overview.md).
 - [How the job graph works](overview.md)
 - [Hermetic integration tests](ci/integration-tests.md)
 - [Reading a SonarQube failure](ci/sonarqube.md)
+- [Container release](cd/container-release.md) — after CI, build and scan; publish only from `main`
