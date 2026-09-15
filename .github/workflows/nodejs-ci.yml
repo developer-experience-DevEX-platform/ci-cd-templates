@@ -1,34 +1,5 @@
 name: Node.js CI
 
-# Job graph
-#
-#   every push and pull request (parallel):
-#     dockerfile-lint  static-checks  unit-tests  dependency-scan
-#
-#   pull requests only, after the jobs above pass:
-#     integration-tests
-#   push to main only (temporary, SonarCloud Free):
-#     sast (SonarQube)
-#
-# dockerfile-lint is intentionally not a dependency of sast: it is skipped
-# for Lambda services, and a skipped dependency would skip sast as well.
-# unit-tests must upload coverage/lcov.info; sast downloads it for the gate.
-#
-# Contract
-#
-# The service is an npm project with a package-lock.json and these scripts:
-#   format:check       exits non-zero on formatting drift
-#   lint               exits non-zero on lint violations
-#   test               writes coverage/lcov.info when run with --coverage
-#   test:integration   only when has_integration_tests is true
-#
-# The workflow runs the scripts; the service decides which tools implement
-# them.
-#
-# Integration tests are hermetic: the suite starts its own dependencies
-# (Testcontainers, Docker Compose) on the runner. No cloud credentials or
-# secrets are provided. Tests against deployed environments belong to CD.
-
 on:
   workflow_call:
     inputs:

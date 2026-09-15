@@ -62,6 +62,10 @@ jobs:
 
 Lambda services set `has_dockerfile: false`.
 
+If `release.yml` also calls this workflow, that `ci` job uses the same
+permissions and `secrets: inherit`. Do not add `id-token: write` there;
+that is only for [container release](../cd/container-release.md).
+
 ## Inputs
 
 | Input | Default | Notes |

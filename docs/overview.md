@@ -1,7 +1,8 @@
 # Overview
 
-CI answers: is this change safe to merge? It does not build images, publish
-artifacts, or deploy.
+CI answers: is this change safe to merge? It does not publish artifacts or
+deploy. Pull-request callers may run [container release](cd/container-release.md)
+to build and scan the image. Publish happens only on push to `main`.
 
 ## Job graph
 

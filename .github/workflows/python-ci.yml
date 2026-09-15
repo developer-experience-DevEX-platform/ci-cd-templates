@@ -1,35 +1,5 @@
 name: Python CI
 
-# Job graph
-#
-#   every push and pull request (parallel):
-#     dockerfile-lint  static-checks  unit-tests  dependency-scan
-#
-#   pull requests only, after the jobs above pass:
-#     integration-tests
-#   push to main only (temporary, SonarCloud Free):
-#     sast (SonarQube)
-#
-# dockerfile-lint is intentionally not a dependency of sast: it is skipped
-# for Lambda services, and a skipped dependency would skip sast as well.
-# unit-tests must upload coverage.xml; sast downloads it for the gate.
-#
-# Contract
-#
-# The service is a pip project with a requirements.txt and a Makefile with
-# these targets:
-#   format-check       exits non-zero on formatting drift
-#   lint               exits non-zero on lint violations
-#   test               runs unit tests and writes coverage.xml
-#   test-integration   only when has_integration_tests is true
-#
-# The workflow runs the targets; the service decides which tools implement
-# them.
-#
-# Integration tests are hermetic: the suite starts its own dependencies
-# (Testcontainers, Docker Compose) on the runner. No cloud credentials or
-# secrets are provided. Tests against deployed environments belong to CD.
-
 on:
   workflow_call:
     inputs:
