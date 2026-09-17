@@ -1,14 +1,3 @@
-# Kubernetes GitOps CD (staging)
-#
-# Runs after container-release publishes the image. Writes the released Git
-# SHA into the service's staging values file in platform-gitops. Argo CD
-# syncs from there; this workflow does not talk to the cluster.
-#
-#   environments/staging/<service>/values.yaml   ->  .image.tag = <git-sha>
-#
-# The image is never rebuilt between environments and latest is never used.
-# Production is a separate, manual promotion.
-#
 name: Kubernetes GitOps CD
 
 on:
@@ -49,7 +38,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Validate deployment inputs
-        id: deployment
         env:
           SERVICE_NAME: ${{ inputs.service_name }}
           IMAGE_TAG: ${{ inputs.image_tag }}
@@ -65,8 +53,6 @@ jobs:
             exit 1
           fi
 
-          echo "values_file=environments/staging/$SERVICE_NAME/values.yaml" >> "$GITHUB_OUTPUT"
-
       - name: Check out GitOps trunk
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -75,6 +61,23 @@ jobs:
           token: ${{ secrets.PLATFORM_GITOPS_TOKEN }}
           path: gitops
           persist-credentials: true
+
+      # A reusable workflow runs against the caller's checkout, so this repo's
+      # own scripts are not on disk. Take them from the ref the caller pinned.
+      - name: Resolve templates ref
+        id: templates
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        shell: bash
+        run: echo "ref=${JOB_WORKFLOW_REF##*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out CI/CD templates
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: developer-experience-DevEX-platform/ci-cd-templates
+          ref: ${{ steps.templates.outputs.ref }}
+          path: ci-cd-templates
+          persist-credentials: false
 
       - name: Install yq
         env:
@@ -90,60 +93,11 @@ jobs:
       - name: Update and push staging desired state
         working-directory: gitops
         env:
+          ENVIRONMENT: staging
           GH_TOKEN: ${{ github.token }}
           IMAGE_TAG: ${{ inputs.image_tag }}
           GITOPS_BRANCH: ${{ inputs.gitops_branch }}
           SERVICE_NAME: ${{ inputs.service_name }}
           SOURCE_REPOSITORY: ${{ github.repository }}
-          VALUES_FILE: ${{ steps.deployment.outputs.values_file }}
         shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Several services share this GitOps repository, so a push can lose
-          # a race. Re-read trunk and retry rather than failing the deploy.
-          for attempt in 1 2 3; do
-            echo "GitOps push attempt $attempt of 3."
-
-            # A newer commit on main means a newer release is already on its
-            # way to staging. Deploying this older SHA would roll staging back.
-            current_main_sha=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')
-            if [[ "$IMAGE_TAG" != "$current_main_sha" ]]; then
-              echo "Staging deployment skipped: $IMAGE_TAG is no longer the current main SHA ($current_main_sha). A newer release supersedes it."
-              exit 0
-            fi
-
-            git fetch origin "$GITOPS_BRANCH"
-            git reset --hard "origin/$GITOPS_BRANCH"
-
-            if [[ ! -f "$VALUES_FILE" ]]; then
-              echo "::error::Staging values file not found: $VALUES_FILE. Platform provisioning is incomplete."
-              exit 1
-            fi
-
-            export IMAGE_TAG
-            yq --inplace '.image.tag = env(IMAGE_TAG)' "$VALUES_FILE"
-            git add "$VALUES_FILE"
-
-            if git diff --staged --quiet; then
-              echo "Staging already references image $IMAGE_TAG; no change is required."
-              exit 0
-            fi
-
-            git commit \
-              --message "deploy(staging): $SERVICE_NAME to $IMAGE_TAG" \
-              --message "Source: $SOURCE_REPOSITORY@$IMAGE_TAG"
-
-            if git push origin "HEAD:$GITOPS_BRANCH"; then
-              echo "Staging desired state updated successfully."
-              exit 0
-            fi
-
-            if [[ "$attempt" -lt 3 ]]; then
-              sleep $((attempt * 2))
-            fi
-          done
-
-          echo "::error::Unable to push staging desired state after 3 attempts."
-          exit 1
+        run: "$GITHUB_WORKSPACE/ci-cd-templates/scripts/gitops-write-desired-state.sh"

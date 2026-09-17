@@ -38,7 +38,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Validate promotion inputs
-        id: promotion
         env:
           SERVICE_NAME: ${{ inputs.service_name }}
           IMAGE_TAG: ${{ inputs.image_tag }}
@@ -54,12 +53,6 @@ jobs:
             exit 1
           fi
 
-          {
-            echo "staging_values_file=environments/staging/$SERVICE_NAME/values.yaml"
-            echo "production_values_file=environments/production/$SERVICE_NAME/values.yaml"
-            echo "production_marker_file=environments/production/$SERVICE_NAME/promotion.yaml"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Check out GitOps trunk
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -68,6 +61,23 @@ jobs:
           token: ${{ secrets.PLATFORM_GITOPS_TOKEN }}
           path: gitops
           persist-credentials: true
+
+      # A reusable workflow runs against the caller's checkout, so this repo's
+      # own scripts are not on disk. Take them from the ref the caller pinned.
+      - name: Resolve templates ref
+        id: templates
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        shell: bash
+        run: echo "ref=${JOB_WORKFLOW_REF##*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out CI/CD templates
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: developer-experience-DevEX-platform/ci-cd-templates
+          ref: ${{ steps.templates.outputs.ref }}
+          path: ci-cd-templates
+          persist-credentials: false
 
       - name: Install yq
         env:
@@ -83,91 +93,10 @@ jobs:
       - name: Promote and push production desired state
         working-directory: gitops
         env:
+          ENVIRONMENT: production
           IMAGE_TAG: ${{ inputs.image_tag }}
           GITOPS_BRANCH: ${{ inputs.gitops_branch }}
           SERVICE_NAME: ${{ inputs.service_name }}
           SOURCE_REPOSITORY: ${{ github.repository }}
-          STAGING_VALUES_FILE: ${{ steps.promotion.outputs.staging_values_file }}
-          PRODUCTION_VALUES_FILE: ${{ steps.promotion.outputs.production_values_file }}
-          PRODUCTION_MARKER_FILE: ${{ steps.promotion.outputs.production_marker_file }}
         shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          write_summary() {
-            {
-              echo "# Production Promotion"
-              echo
-              echo "**Service:**"
-              echo "$SERVICE_NAME"
-              echo
-              echo "**Image Tag:**"
-              echo "$IMAGE_TAG"
-              echo
-              echo "**Outcome:**"
-              echo "- $1"
-            } >> "$GITHUB_STEP_SUMMARY"
-          }
-
-          # Several services share this GitOps repository, so a push can lose
-          # a race. Re-read trunk and retry rather than failing the promotion.
-          for attempt in 1 2 3; do
-            echo "GitOps push attempt $attempt of 3."
-
-            git fetch origin "$GITOPS_BRANCH"
-            git reset --hard "origin/$GITOPS_BRANCH"
-
-            if [[ ! -f "$STAGING_VALUES_FILE" ]]; then
-              echo "::error::Staging values file not found: $STAGING_VALUES_FILE"
-              exit 1
-            fi
-
-            if [[ ! -f "$PRODUCTION_VALUES_FILE" ]]; then
-              echo "::error::Production values file not found: $PRODUCTION_VALUES_FILE"
-              exit 1
-            fi
-
-            staging_image_tag=$(yq --unwrapScalar '.image.tag' "$STAGING_VALUES_FILE")
-            if [[ "$staging_image_tag" != "$IMAGE_TAG" ]]; then
-              echo "::error::Production promotion rejected: staging references $staging_image_tag, not $IMAGE_TAG. Promote only what staging is running."
-              exit 1
-            fi
-
-            export IMAGE_TAG
-            yq --inplace '.image.tag = env(IMAGE_TAG)' "$PRODUCTION_VALUES_FILE"
-
-            first_promotion=false
-            if [[ ! -f "$PRODUCTION_MARKER_FILE" ]]; then
-              printf 'enabled: true\n' > "$PRODUCTION_MARKER_FILE"
-              first_promotion=true
-            fi
-            git add "$PRODUCTION_VALUES_FILE" "$PRODUCTION_MARKER_FILE"
-
-            if git diff --staged --quiet; then
-              echo "Production already references image $IMAGE_TAG; no change is required."
-              write_summary "No change: production already references this image."
-              exit 0
-            fi
-
-            git commit \
-              --message "deploy(production): $SERVICE_NAME to $IMAGE_TAG" \
-              --message "Source: $SOURCE_REPOSITORY@$IMAGE_TAG"
-
-            if git push origin "HEAD:$GITOPS_BRANCH"; then
-              echo "Production desired state updated successfully."
-              if [[ "$first_promotion" == true ]]; then
-                write_summary "First promotion. Argo CD now discovers this service in production."
-              else
-                write_summary "Production desired state updated."
-              fi
-              exit 0
-            fi
-
-            if [[ "$attempt" -lt 3 ]]; then
-              sleep $((attempt * 2))
-            fi
-          done
-
-          echo "::error::Unable to push production desired state after 3 attempts."
-          exit 1
+        run: "$GITHUB_WORKSPACE/ci-cd-templates/scripts/gitops-write-desired-state.sh"

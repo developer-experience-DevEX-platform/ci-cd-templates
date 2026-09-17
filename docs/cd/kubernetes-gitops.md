@@ -124,9 +124,13 @@ another repository; it never talks to the cluster.
 2. **Check out `platform-gitops`** — not the service repo — into a `gitops/`
    directory, using `PLATFORM_GITOPS_TOKEN`. The default `GITHUB_TOKEN`
    cannot write to another repository.
-3. **Install `yq`**, so the edit preserves formatting, key order, and
+3. **Check out this repository** into `ci-cd-templates/`, at the same ref the
+   caller pinned the workflow to. A reusable workflow runs against the
+   caller's checkout, so the script in step 5 is not otherwise on disk.
+4. **Install `yq`**, so the edit preserves formatting, key order, and
    comments in the values file.
-4. **Update and push**, retrying up to three times:
+5. **Run `scripts/gitops-write-desired-state.sh`**, retrying the push up to
+   three times:
    - Skip if this SHA is no longer the newest commit on `main` (above).
    - Re-read GitOps trunk (`fetch` and `reset --hard`) so each attempt edits
      the current state, not the clone from a minute ago.
@@ -137,10 +141,16 @@ another repository; it never talks to the cluster.
    - Commit with `Source: <repo>@<sha>` so GitOps history traces back to the
      service commit, then push.
 
-Production promotion follows the same shape, with one extra gate: it reads
-the staging values file first and refuses when staging is not running the
-SHA being promoted. It also writes a run summary to the Actions page naming
-the service, the SHA, and whether this was the service's first promotion.
+Production promotion runs the same script with `ENVIRONMENT=production`, which
+swaps one gate for another: instead of skipping superseded SHAs, it reads the
+staging values file and refuses anything staging is not currently running. It
+also writes a run summary to the Actions page naming the service, the SHA, and
+whether this was the service's first promotion.
+
+The script takes everything it needs from environment variables —
+`ENVIRONMENT`, `SERVICE_NAME`, `IMAGE_TAG`, `GITOPS_BRANCH`,
+`SOURCE_REPOSITORY` — and derives the file paths from the first two, so
+`environments/<environment>/<service>/` is spelled in exactly one place.
 
 ## Inputs
 
