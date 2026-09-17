@@ -44,3 +44,7 @@ How they fit together: [docs/cd/README.md](docs/cd/README.md).
 Org secrets, Sonar permissions, ECR repository variables, and how we pin
 workflow versions live in [docs/platform.md](docs/platform.md). Teams do
 not need that page to adopt CI.
+
+Changing a workflow in this repository? `self-check.yml` lints `scripts/` with
+shellcheck and runs `tests/gitops-write-desired-state.test.sh`, which you can
+run locally too.

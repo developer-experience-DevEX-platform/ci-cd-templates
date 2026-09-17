@@ -96,3 +96,24 @@ Production promotion runs in the GitHub `production` environment, so
 reviewers configured there gate it. Backstage creates the staging and
 production values files; the workflow fails when one is missing instead of
 creating it. Details: [Kubernetes GitOps](cd/kubernetes-gitops.md).
+
+## This repository's own CI
+
+`self-check.yml` runs on pull requests and on pushes to `main`. Every other
+workflow here is reusable and only runs in service repositories, so this is
+the only place changes to the templates are exercised before teams get them.
+
+It does two things:
+
+- **`shellcheck`** over `scripts/` and `tests/`. Bash inside a workflow's
+  `run:` block cannot be linted, which is the main reason
+  `gitops-write-desired-state.sh` is a file rather than 45 lines of YAML.
+- **`tests/gitops-write-desired-state.test.sh`**, which stands up a throwaway
+  GitOps remote and walks both environments: a staging deploy, an idempotent
+  re-run, a superseded SHA, a first promotion, a promotion staging does not
+  back, a missing values file, and a bad environment. `gh` and `yq` are
+  stubbed, so it needs no network and no credentials. Run it locally the same
+  way CI does.
+
+Changing the deploy logic without adding a case here means the next person
+finds out in a service repository instead.

@@ -1,0 +1,48 @@
+# Self Check
+#
+# This repository's own CI. Every other workflow here is reusable and runs in
+# service repositories; this one guards the scripts those workflows call.
+#
+name: Self Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    name: Lint shell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run shellcheck
+        shell: bash
+        run: |
+          shellcheck --version
+          shellcheck scripts/*.sh tests/*.sh
+
+  script-tests:
+    name: Test GitOps write script
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run script tests
+        shell: bash
+        run: tests/gitops-write-desired-state.test.sh
