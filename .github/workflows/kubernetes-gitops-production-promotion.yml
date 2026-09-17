@@ -1,33 +1,44 @@
+# Kubernetes GitOps Production Promotion
+#
+# Manual. Promotes a Git SHA that is already running in staging to production
+# by writing it into the service's production values file in platform-gitops.
+#
+#   environments/production/<service>/values.yaml     ->  .image.tag = <git-sha>
+#   environments/production/<service>/promotion.yaml  ->  created on first promotion
+#
+# promotion.yaml is what the production ApplicationSet discovers, so a service
+# is not deployed to production until it has been promoted once.
+#
+# The image is not rebuilt: production runs the same bytes staging tested.
+# Promotion is rejected unless staging currently references image_tag.
+#
 name: Kubernetes GitOps Production Promotion
 
 on:
   workflow_call:
     inputs:
-      service_name:
-        description: Lowercase kebab-case service name.
-        required: true
-        type: string
       image_tag:
         description: Immutable 40-character Git commit SHA already validated in staging.
         required: true
         type: string
+      service_name:
+        description: Service name. Defaults to the repository name.
+        required: false
+        type: string
+        default: ${{ github.event.repository.name }}
       gitops_repository:
         description: Repository containing GitOps desired state.
-        required: true
+        required: false
         type: string
+        default: developer-experience-DevEX-platform/platform-gitops
       gitops_branch:
         description: GitOps trunk branch.
         required: false
         type: string
         default: main
-      gitops_checkout_path:
-        description: Local directory used when checking out the GitOps repository.
-        required: false
-        type: string
-        default: gitops
     secrets:
       PLATFORM_GITOPS_TOKEN:
-        description: Fine-grained token scoped to the configured GitOps repository with contents read/write access.
+        description: Organization token with contents read/write on the GitOps repository. Callers pass it with secrets inherit.
         required: true
 
 permissions:
@@ -38,6 +49,7 @@ jobs:
     name: Promote production GitOps
     environment: production
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Validate promotion inputs
         id: promotion
@@ -68,7 +80,7 @@ jobs:
           repository: ${{ inputs.gitops_repository }}
           ref: ${{ inputs.gitops_branch }}
           token: ${{ secrets.PLATFORM_GITOPS_TOKEN }}
-          path: ${{ inputs.gitops_checkout_path }}
+          path: gitops
           persist-credentials: true
 
       - name: Install yq
@@ -83,7 +95,7 @@ jobs:
           yq --version
 
       - name: Promote and push production desired state
-        working-directory: ${{ inputs.gitops_checkout_path }}
+        working-directory: gitops
         env:
           IMAGE_TAG: ${{ inputs.image_tag }}
           GITOPS_BRANCH: ${{ inputs.gitops_branch }}
@@ -97,6 +109,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # Several services share this GitOps repository, so a push can lose
+          # a race. Re-read trunk and retry rather than failing the promotion.
           for attempt in 1 2 3; do
             echo "GitOps push attempt $attempt of 3."
 
@@ -115,7 +129,7 @@ jobs:
 
             staging_image_tag=$(yq --unwrapScalar '.image.tag' "$STAGING_VALUES_FILE")
             if [[ "$staging_image_tag" != "$IMAGE_TAG" ]]; then
-              echo "::error::Production promotion rejected: staging references $staging_image_tag, not $IMAGE_TAG."
+              echo "::error::Production promotion rejected: staging references $staging_image_tag, not $IMAGE_TAG. Promote only what staging is running."
               exit 1
             fi
 

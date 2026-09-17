@@ -2,9 +2,8 @@
 
 Reusable GitHub Actions workflows for services in this organization.
 
-CI and CD are separate. CI docs are complete. CD docs start with
-[container release](docs/cd/container-release.md); GitOps and Lambda come
-after those templates are reviewed.
+CI and CD are separate. CI, container release, and Kubernetes GitOps are
+documented. The Lambda workflows are not reviewed yet.
 
 ## Start here
 
@@ -35,8 +34,10 @@ Shared CI topics:
 | Workflow | Status | Docs |
 | --- | --- | --- |
 | Container release | Available | [docs/cd/container-release.md](docs/cd/container-release.md) |
-| Kubernetes GitOps | Exists, not reviewed | — |
+| Kubernetes GitOps | Available | [docs/cd/kubernetes-gitops.md](docs/cd/kubernetes-gitops.md) |
 | Node.js Lambda | Exists, not reviewed | — |
+
+How they fit together: [docs/cd/README.md](docs/cd/README.md).
 
 ## Platform
 
