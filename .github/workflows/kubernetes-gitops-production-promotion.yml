@@ -1,17 +1,3 @@
-# Kubernetes GitOps Production Promotion
-#
-# Manual. Promotes a Git SHA that is already running in staging to production
-# by writing it into the service's production values file in platform-gitops.
-#
-#   environments/production/<service>/values.yaml     ->  .image.tag = <git-sha>
-#   environments/production/<service>/promotion.yaml  ->  created on first promotion
-#
-# promotion.yaml is what the production ApplicationSet discovers, so a service
-# is not deployed to production until it has been promoted once.
-#
-# The image is not rebuilt: production runs the same bytes staging tested.
-# Promotion is rejected unless staging currently references image_tag.
-#
 name: Kubernetes GitOps Production Promotion
 
 on:
@@ -109,6 +95,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          write_summary() {
+            {
+              echo "# Production Promotion"
+              echo
+              echo "**Service:**"
+              echo "$SERVICE_NAME"
+              echo
+              echo "**Image Tag:**"
+              echo "$IMAGE_TAG"
+              echo
+              echo "**Outcome:**"
+              echo "- $1"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
           # Several services share this GitOps repository, so a push can lose
           # a race. Re-read trunk and retry rather than failing the promotion.
           for attempt in 1 2 3; do
@@ -135,13 +136,17 @@ jobs:
 
             export IMAGE_TAG
             yq --inplace '.image.tag = env(IMAGE_TAG)' "$PRODUCTION_VALUES_FILE"
+
+            first_promotion=false
             if [[ ! -f "$PRODUCTION_MARKER_FILE" ]]; then
               printf 'enabled: true\n' > "$PRODUCTION_MARKER_FILE"
+              first_promotion=true
             fi
             git add "$PRODUCTION_VALUES_FILE" "$PRODUCTION_MARKER_FILE"
 
             if git diff --staged --quiet; then
               echo "Production already references image $IMAGE_TAG; no change is required."
+              write_summary "No change: production already references this image."
               exit 0
             fi
 
@@ -151,6 +156,11 @@ jobs:
 
             if git push origin "HEAD:$GITOPS_BRANCH"; then
               echo "Production desired state updated successfully."
+              if [[ "$first_promotion" == true ]]; then
+                write_summary "First promotion. Argo CD now discovers this service in production."
+              else
+                write_summary "Production desired state updated."
+              fi
               exit 0
             fi
 

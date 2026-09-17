@@ -139,7 +139,8 @@ another repository; it never talks to the cluster.
 
 Production promotion follows the same shape, with one extra gate: it reads
 the staging values file first and refuses when staging is not running the
-SHA being promoted.
+SHA being promoted. It also writes a run summary to the Actions page naming
+the service, the SHA, and whether this was the service's first promotion.
 
 ## Inputs
 
