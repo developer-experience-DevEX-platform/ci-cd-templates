@@ -63,19 +63,13 @@ jobs:
           persist-credentials: true
 
       # A reusable workflow runs against the caller's checkout, so this repo's
-      # own scripts are not on disk. Take them from the ref the caller pinned.
-      - name: Resolve templates ref
-        id: templates
-        env:
-          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
-        shell: bash
-        run: echo "ref=${JOB_WORKFLOW_REF##*@}" >> "$GITHUB_OUTPUT"
-
+      # own scripts are not on disk. The job context points at the commit this
+      # workflow was called at, whatever ref the caller pinned.
       - name: Check out CI/CD templates
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: developer-experience-DevEX-platform/ci-cd-templates
-          ref: ${{ steps.templates.outputs.ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: ci-cd-templates
           persist-credentials: false
 

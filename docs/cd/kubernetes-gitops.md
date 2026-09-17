@@ -124,9 +124,10 @@ another repository; it never talks to the cluster.
 2. **Check out `platform-gitops`** — not the service repo — into a `gitops/`
    directory, using `PLATFORM_GITOPS_TOKEN`. The default `GITHUB_TOKEN`
    cannot write to another repository.
-3. **Check out this repository** into `ci-cd-templates/`, at the same ref the
-   caller pinned the workflow to. A reusable workflow runs against the
-   caller's checkout, so the script in step 5 is not otherwise on disk.
+3. **Check out this repository** into `ci-cd-templates/`, at the exact commit
+   the caller invoked, from `job.workflow_repository` and `job.workflow_sha`.
+   A reusable workflow runs against the caller's checkout, so the script in
+   step 5 is not otherwise on disk.
 4. **Install `yq`**, so the edit preserves formatting, key order, and
    comments in the values file.
 5. **Run `scripts/gitops-write-desired-state.sh`**, retrying the push up to
