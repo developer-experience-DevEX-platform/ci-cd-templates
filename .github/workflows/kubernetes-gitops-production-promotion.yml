@@ -3,31 +3,28 @@ name: Kubernetes GitOps Production Promotion
 on:
   workflow_call:
     inputs:
-      service_name:
-        description: Lowercase kebab-case service name.
-        required: true
-        type: string
       image_tag:
         description: Immutable 40-character Git commit SHA already validated in staging.
         required: true
         type: string
+      service_name:
+        description: Service name. Defaults to the repository name.
+        required: false
+        type: string
+        default: ${{ github.event.repository.name }}
       gitops_repository:
         description: Repository containing GitOps desired state.
-        required: true
+        required: false
         type: string
+        default: developer-experience-DevEX-platform/platform-gitops
       gitops_branch:
         description: GitOps trunk branch.
         required: false
         type: string
         default: main
-      gitops_checkout_path:
-        description: Local directory used when checking out the GitOps repository.
-        required: false
-        type: string
-        default: gitops
     secrets:
       PLATFORM_GITOPS_TOKEN:
-        description: Fine-grained token scoped to the configured GitOps repository with contents read/write access.
+        description: Organization token with contents read/write on the GitOps repository. Callers pass it with secrets inherit.
         required: true
 
 permissions:
@@ -38,6 +35,7 @@ jobs:
     name: Promote production GitOps
     environment: production
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Validate promotion inputs
         id: promotion
@@ -68,7 +66,7 @@ jobs:
           repository: ${{ inputs.gitops_repository }}
           ref: ${{ inputs.gitops_branch }}
           token: ${{ secrets.PLATFORM_GITOPS_TOKEN }}
-          path: ${{ inputs.gitops_checkout_path }}
+          path: gitops
           persist-credentials: true
 
       - name: Install yq
@@ -83,7 +81,7 @@ jobs:
           yq --version
 
       - name: Promote and push production desired state
-        working-directory: ${{ inputs.gitops_checkout_path }}
+        working-directory: gitops
         env:
           IMAGE_TAG: ${{ inputs.image_tag }}
           GITOPS_BRANCH: ${{ inputs.gitops_branch }}
@@ -97,6 +95,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          write_summary() {
+            {
+              echo "# Production Promotion"
+              echo
+              echo "**Service:**"
+              echo "$SERVICE_NAME"
+              echo
+              echo "**Image Tag:**"
+              echo "$IMAGE_TAG"
+              echo
+              echo "**Outcome:**"
+              echo "- $1"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          # Several services share this GitOps repository, so a push can lose
+          # a race. Re-read trunk and retry rather than failing the promotion.
           for attempt in 1 2 3; do
             echo "GitOps push attempt $attempt of 3."
 
@@ -115,19 +130,23 @@ jobs:
 
             staging_image_tag=$(yq --unwrapScalar '.image.tag' "$STAGING_VALUES_FILE")
             if [[ "$staging_image_tag" != "$IMAGE_TAG" ]]; then
-              echo "::error::Production promotion rejected: staging references $staging_image_tag, not $IMAGE_TAG."
+              echo "::error::Production promotion rejected: staging references $staging_image_tag, not $IMAGE_TAG. Promote only what staging is running."
               exit 1
             fi
 
             export IMAGE_TAG
             yq --inplace '.image.tag = env(IMAGE_TAG)' "$PRODUCTION_VALUES_FILE"
+
+            first_promotion=false
             if [[ ! -f "$PRODUCTION_MARKER_FILE" ]]; then
               printf 'enabled: true\n' > "$PRODUCTION_MARKER_FILE"
+              first_promotion=true
             fi
             git add "$PRODUCTION_VALUES_FILE" "$PRODUCTION_MARKER_FILE"
 
             if git diff --staged --quiet; then
               echo "Production already references image $IMAGE_TAG; no change is required."
+              write_summary "No change: production already references this image."
               exit 0
             fi
 
@@ -137,6 +156,11 @@ jobs:
 
             if git push origin "HEAD:$GITOPS_BRANCH"; then
               echo "Production desired state updated successfully."
+              if [[ "$first_promotion" == true ]]; then
+                write_summary "First promotion. Argo CD now discovers this service in production."
+              else
+                write_summary "Production desired state updated."
+              fi
               exit 0
             fi
 

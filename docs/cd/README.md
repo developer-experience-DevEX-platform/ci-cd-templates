@@ -3,12 +3,20 @@
 CD starts after CI says the change is safe to merge. These workflows build,
 publish, and deploy. They do not format, lint, or run unit tests.
 
+```text
+push to main:   ci  ->  container-release  ->  gitops staging
+manual:         gitops production promotion
+```
+
 | Workflow | Status | Docs |
 | --- | --- | --- |
 | Container release | Available | [container-release.md](container-release.md) |
-| Kubernetes GitOps | Exists, not reviewed | Later |
-| Production promotion | Exists, not reviewed | Later |
+| Kubernetes GitOps (staging + production) | Available | [kubernetes-gitops.md](kubernetes-gitops.md) |
 | Node.js Lambda | Exists, not reviewed | Later |
 
-Lambda services do not call container release. They have their own package /
-release / staging path.
+A service repo needs two files: `release.yml` (push to `main`) and
+`promote-production.yml` (manual). Both are thin callers with
+`secrets: inherit`.
+
+Lambda services do not call container release or GitOps. They have their own
+package / release / staging path.

@@ -81,3 +81,18 @@ Trust is repository- and branch-scoped (`refs/heads/main`).
 The template publishes only on `push` to `main`. PR callers must keep
 `if: github.event_name == 'pull_request'` so `ci.yml` does not publish on
 merge. Details: [container release](cd/container-release.md).
+
+## `PLATFORM_GITOPS_TOKEN`
+
+Organization secret. Callers pass it with `secrets: inherit`. Scope it to
+`platform-gitops` with contents read/write; the GitOps workflows commit the
+released Git SHA there.
+
+Both GitOps workflows default to
+`developer-experience-DevEX-platform/platform-gitops` on `main`. Teams do
+not pass those.
+
+Production promotion runs in the GitHub `production` environment, so
+reviewers configured there gate it. Backstage creates the staging and
+production values files; the workflow fails when one is missing instead of
+creating it. Details: [Kubernetes GitOps](cd/kubernetes-gitops.md).

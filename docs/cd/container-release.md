@@ -150,5 +150,5 @@ used.
 ## Related
 
 - [CI standard](../ci/README.md) — run CI before this workflow
+- [Kubernetes GitOps](kubernetes-gitops.md) — deploys what this publishes
 - [Platform](../platform.md) — how those repository variables get there
-- GitOps deploy after publish is a later review

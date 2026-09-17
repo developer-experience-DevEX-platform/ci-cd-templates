@@ -1,33 +1,42 @@
+# Kubernetes GitOps CD (staging)
+#
+# Runs after container-release publishes the image. Writes the released Git
+# SHA into the service's staging values file in platform-gitops. Argo CD
+# syncs from there; this workflow does not talk to the cluster.
+#
+#   environments/staging/<service>/values.yaml   ->  .image.tag = <git-sha>
+#
+# The image is never rebuilt between environments and latest is never used.
+# Production is a separate, manual promotion.
+#
 name: Kubernetes GitOps CD
 
 on:
   workflow_call:
     inputs:
       service_name:
-        description: Lowercase kebab-case service name.
-        required: true
+        description: Service name. Defaults to the repository name.
+        required: false
         type: string
+        default: ${{ github.event.repository.name }}
       image_tag:
-        description: Immutable 40-character Git commit SHA to deploy.
-        required: true
+        description: Immutable 40-character Git commit SHA to deploy. Defaults to github.sha.
+        required: false
         type: string
+        default: ${{ github.sha }}
       gitops_repository:
         description: Repository containing GitOps desired state.
-        required: true
+        required: false
         type: string
+        default: developer-experience-DevEX-platform/platform-gitops
       gitops_branch:
         description: GitOps trunk branch.
         required: false
         type: string
         default: main
-      gitops_checkout_path:
-        description: Local directory used when checking out the GitOps repository.
-        required: false
-        type: string
-        default: gitops
     secrets:
       PLATFORM_GITOPS_TOKEN:
-        description: Fine-grained token scoped to the configured GitOps repository with contents read/write access.
+        description: Organization token with contents read/write on the GitOps repository. Callers pass it with secrets inherit.
         required: true
 
 permissions:
@@ -37,6 +46,7 @@ jobs:
   update-staging-gitops:
     name: Update staging GitOps
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Validate deployment inputs
         id: deployment
@@ -55,39 +65,18 @@ jobs:
             exit 1
           fi
 
-          {
-            echo "values_file=environments/staging/$SERVICE_NAME/values.yaml"
-            echo "deployment_file=environments/staging/$SERVICE_NAME/deployment.yaml"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Check latest application main SHA
-        id: latest-main
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IMAGE_TAG: ${{ inputs.image_tag }}
-        shell: bash
-        run: |
-          current_main_sha=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')
-
-          if [[ "$IMAGE_TAG" != "$current_main_sha" ]]; then
-            echo "Staging deployment superseded: $IMAGE_TAG is not the current main SHA ($current_main_sha)."
-            echo "superseded=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "superseded=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "values_file=environments/staging/$SERVICE_NAME/values.yaml" >> "$GITHUB_OUTPUT"
 
       - name: Check out GitOps trunk
-        if: steps.latest-main.outputs.superseded == 'false'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.gitops_repository }}
           ref: ${{ inputs.gitops_branch }}
           token: ${{ secrets.PLATFORM_GITOPS_TOKEN }}
-          path: ${{ inputs.gitops_checkout_path }}
+          path: gitops
           persist-credentials: true
 
       - name: Install yq
-        if: steps.latest-main.outputs.superseded == 'false'
         env:
           YQ_VERSION: v4.53.3
         shell: bash
@@ -99,8 +88,7 @@ jobs:
           yq --version
 
       - name: Update and push staging desired state
-        if: steps.latest-main.outputs.superseded == 'false'
-        working-directory: ${{ inputs.gitops_checkout_path }}
+        working-directory: gitops
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE_TAG: ${{ inputs.image_tag }}
@@ -108,18 +96,21 @@ jobs:
           SERVICE_NAME: ${{ inputs.service_name }}
           SOURCE_REPOSITORY: ${{ github.repository }}
           VALUES_FILE: ${{ steps.deployment.outputs.values_file }}
-          DEPLOYMENT_FILE: ${{ steps.deployment.outputs.deployment_file }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # Several services share this GitOps repository, so a push can lose
+          # a race. Re-read trunk and retry rather than failing the deploy.
           for attempt in 1 2 3; do
             echo "GitOps push attempt $attempt of 3."
 
+            # A newer commit on main means a newer release is already on its
+            # way to staging. Deploying this older SHA would roll staging back.
             current_main_sha=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')
             if [[ "$IMAGE_TAG" != "$current_main_sha" ]]; then
-              echo "Staging deployment superseded: $IMAGE_TAG is not current main ($current_main_sha)."
+              echo "Staging deployment skipped: $IMAGE_TAG is no longer the current main SHA ($current_main_sha). A newer release supersedes it."
               exit 0
             fi
 
@@ -127,17 +118,16 @@ jobs:
             git reset --hard "origin/$GITOPS_BRANCH"
 
             if [[ ! -f "$VALUES_FILE" ]]; then
-              echo "::error::Staging values file not found: $VALUES_FILE"
+              echo "::error::Staging values file not found: $VALUES_FILE. Platform provisioning is incomplete."
               exit 1
             fi
 
             export IMAGE_TAG
             yq --inplace '.image.tag = env(IMAGE_TAG)' "$VALUES_FILE"
-            printf 'enabled: true\n' > "$DEPLOYMENT_FILE"
-            git add "$VALUES_FILE" "$DEPLOYMENT_FILE"
+            git add "$VALUES_FILE"
 
             if git diff --staged --quiet; then
-              echo "Staging already references image $IMAGE_TAG and is enabled; no change is required."
+              echo "Staging already references image $IMAGE_TAG; no change is required."
               exit 0
             fi
 
