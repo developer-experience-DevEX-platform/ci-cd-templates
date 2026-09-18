@@ -18,12 +18,11 @@ Organization: `developer-experience-devex-platform`.
 
 ## When it runs
 
-Today it runs on **push to `main`** because SonarCloud Free analyzes the
-default branch only. The intended trigger is pull requests. See
-[overview](../overview.md).
+On **pull requests**, after format, lint, unit tests, and the dependency
+scan pass. See [overview](../overview.md).
 
 A failed gate fails the GitHub job. Integration tests do not run unless
-SonarQube succeeded or was skipped.
+SonarQube succeeded.
 
 ## Reading a failure
 

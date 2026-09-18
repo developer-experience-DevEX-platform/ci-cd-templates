@@ -41,6 +41,8 @@ name: CI
 
 on:
   push:
+    branches-ignore:
+      - main
   pull_request:
 
 permissions:
@@ -62,7 +64,9 @@ jobs:
 
 Lambda services set `has_dockerfile: false`.
 
-If `release.yml` also calls this workflow, that `ci` job uses the same
+If `release.yml` also calls this workflow, ignore `main` on the `push`
+trigger as in the snippet above. Release runs CI on merge, so a second CI
+workflow on `main` is duplicate work. That `ci` job uses the same
 permissions and `secrets: inherit`. Do not add `id-token: write` there;
 that is only for [container release](../cd/container-release.md).
 

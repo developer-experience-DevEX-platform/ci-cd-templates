@@ -43,6 +43,8 @@ when the team adds their own integration job in this caller — they own that
 stage. See [integration tests](ci/integration-tests.md).
 
 Full inputs and the command contract: [Node.js](ci/nodejs.md), [Python](ci/python.md).
+When the service also has `release.yml`, ignore `main` on this caller so a
+merge does not start CI and Release together. See [overview](overview.md).
 
 ## 2. Meet the contract
 
@@ -66,8 +68,7 @@ Push a feature branch. Format, lint, unit tests, dependency scan, and
 Dockerfile lint should run. Open a pull request when those are green.
 
 You are done when a feature-branch push is green and a pull request runs
-integration tests (if you enabled them). SonarQube currently runs on `main`
-only; see [overview](overview.md).
+SonarQube, then integration tests (if you enabled them).
 
 ## Next
 

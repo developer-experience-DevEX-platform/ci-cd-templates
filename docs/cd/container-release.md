@@ -42,21 +42,32 @@ still documented as repository-root relative; if `working_directory` is not
 ## Callers
 
 Two files. Keep them separate so a merge to `main` does not run this
-workflow twice.
+workflow twice. `ci.yml` must ignore `main`; `release.yml` is the only
+workflow that should run on that push, and it already runs CI before
+publish.
 
-**Pull request — build and scan only.** In `.github/workflows/ci.yml` the
-job must stay limited to pull requests. `ci.yml` also fires on push to
-`main`; without this `if`, that push would publish, then `release.yml`
-would try to publish the same SHA and fail the immutable-tag check.
+**Pull request — build and scan only.** In `.github/workflows/ci.yml`:
 
 ```yaml
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+
+jobs:
   container-validation:
     if: github.event_name == 'pull_request'
     needs: ci
     permissions:
       contents: read
+      id-token: write
     uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@main
 ```
+
+GitHub checks nested-job permissions at parse time, so this job still
+needs `id-token: write` even though publish does not run on a PR. The
+`if` keeps the job off feature-branch pushes.
 
 **Push to `main` — build, scan, SBOM, publish.** Separate workflow:
 

@@ -18,25 +18,10 @@ On **every push and every pull request**, these jobs run in parallel:
 Dockerfile lint is not a requirement for SonarQube, so Lambda services that
 skip it can still run the quality gate.
 
-**Intended** (after SonarCloud PR analysis is available):
-
 ```text
 push / pull_request:  dockerfile-lint  static-checks  unit-tests  dependency-scan
 pull_request only:                 sonarqube  ->  integration-tests
 ```
-
-**Today:** SonarCloud Free analyzes the default branch only, so SonarQube
-runs on **push to `main`**, not on pull requests. Integration tests still run
-on PRs; they treat a skipped SonarQube job as acceptable.
-
-```text
-push / pull_request:  dockerfile-lint  static-checks  unit-tests  dependency-scan
-push to main:                      sonarqube
-pull_request:                      integration-tests
-```
-
-Reverting SonarQube to pull requests is a one-line `if` change in the
-workflows. Callers do not change.
 
 ## Triggers
 
@@ -45,14 +30,19 @@ The caller must use:
 ```yaml
 on:
   push:
+    branches-ignore:
+      - main
   pull_request:
 ```
 
 | Event | What runs |
 | --- | --- |
 | Push to a feature branch | Parallel jobs. Confirm these before opening a PR. |
-| Pull request | Parallel jobs again, then integration tests. |
-| Push to `main` | Parallel jobs, then SonarQube. |
+| Pull request | Parallel jobs again, then SonarQube, then integration tests. |
+| Push to `main` | `release.yml` only: CI (parallel jobs), then publish, then GitOps. |
+
+`ci.yml` ignores `main` so a merge does not start CI and Release at the same
+time. Release already calls the CI workflow before it publishes.
 
 Once a pull request exists, the same commit fires both `push` and
 `pull_request`, so the cheap parallel jobs run twice. That is the cost of

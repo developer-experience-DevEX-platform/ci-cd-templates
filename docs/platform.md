@@ -41,8 +41,7 @@ it off for these projects.
 ## GitHub app
 
 Install the SonarQube Cloud GitHub app on the organization so pull requests
-can get a Quality Gate comment (once PR analysis is on the plan). That is
-an org install, not a workflow input.
+get a Quality Gate comment. That is an org install, not a workflow input.
 
 ## Developers vs CI
 
@@ -52,18 +51,6 @@ projects they work on. They do not need Analyze.
 The CI token is the identity that analyzes. Platform admins Administer the
 org. Member sync with GitHub is a SonarCloud Team/Enterprise feature; on
 Free, grant project permissions manually as needed.
-
-## Temporary SonarQube trigger
-
-Both `nodejs-ci.yml` and `python-ci.yml` use:
-
-```yaml
-if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-```
-
-Revert to `github.event_name == 'pull_request'` when PR analysis is available.
-Callers do not change. Integration tests already allow `needs.sast.result ==
-'skipped'` so PRs keep running while this exception is in place.
 
 ## Container release variables
 

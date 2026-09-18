@@ -138,9 +138,7 @@ jobs:
 
   sast:
     name: SonarQube
-    # Temporary: SonarCloud Free analyzes the main branch only. Revert to
-    # github.event_name == 'pull_request' after the paid-plan / PR check.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request'
     needs:
       - static-checks
       - unit-tests
@@ -182,7 +180,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    if: github.event_name == 'pull_request' && inputs.has_integration_tests && (needs.sast.result == 'success' || needs.sast.result == 'skipped')
+    if: github.event_name == 'pull_request' && inputs.has_integration_tests
     needs:
       - sast
     runs-on: ubuntu-latest

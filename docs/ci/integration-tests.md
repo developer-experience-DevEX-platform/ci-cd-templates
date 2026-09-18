@@ -15,7 +15,7 @@ workflow does not install or configure containers; the suite does.
 
 ### When they run
 
-On **pull requests**, after SonarQube succeeds or is skipped, and only when
+On **pull requests**, after SonarQube succeeds, and only when
 `has_integration_tests` is `true`.
 
 They do not run on feature-branch pushes. Get format, lint, unit tests, and
