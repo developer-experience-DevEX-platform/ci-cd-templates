@@ -11,8 +11,8 @@ document commands, coverage files, and inputs that differ.
 | Format & lint | Every push and PR | Formatting drift and lint violations |
 | Unit tests | Every push and PR | Tests pass and a coverage file is produced |
 | Dependency scan | Every push and PR | Trivy filesystem scan; `CRITICAL` and `HIGH` fail the job |
-| SonarQube | After the jobs above (today: push to `main`) | Coverage uploaded; organization quality gate |
-| Integration tests | Pull requests, if enabled | Hermetic suite after SonarQube succeeds or is skipped |
+| SonarQube | Pull requests, after the jobs above | Coverage uploaded; organization quality gate |
+| Integration tests | Pull requests, if enabled | Hermetic suite after SonarQube succeeds |
 
 Lint still runs if format fails, so both can be fixed in one push.
 
