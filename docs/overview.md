@@ -39,7 +39,7 @@ on:
 | --- | --- |
 | Push to a feature branch | Parallel jobs. Confirm these before opening a PR. |
 | Pull request | Parallel jobs again, then SonarQube, then integration tests. |
-| Push to `main` | `release.yml` only: CI (parallel jobs), then publish, then GitOps. |
+| Push to `main` | `release.yml` only: require AWS vars, CI (parallel jobs), then publish, then GitOps. Missing vars fail Release; they do not skip publish. |
 
 `ci.yml` ignores `main` so a merge does not start CI and Release at the same
 time. Release already calls the CI workflow before it publishes.

@@ -12,8 +12,8 @@ publish flag.
 ## Job graph
 
 ```text
-pull_request:   build-image  ->  trivy, dockle
-push to main:   build-image  ->  trivy, dockle  ->  sbom  ->  publish-ecr
+pull_request:   check-config  ->  build-image  ->  trivy, dockle
+push to main:   check-config  ->  build-image  ->  trivy, dockle  ->  sbom  ->  publish-ecr
 ```
 
 Two Docker builds on purpose. The PR image and the `main` image are
@@ -23,6 +23,7 @@ then publishes it.
 
 | Job | PR | `main` | What it enforces |
 | --- | --- | --- | --- |
+| Check release configuration | no-op | yes | `AWS_REGION`, `AWS_RELEASE_ROLE_ARN`, and `ECR_REPOSITORY` must be set. Missing variables fail the workflow; publish is never skipped. |
 | Build image | yes | yes | `docker build`. Tag must be a 40-character SHA. |
 | Trivy | yes | yes | `HIGH` and `CRITICAL` fail. Unfixed issues are ignored. |
 | Dockle | yes | yes | Findings at `warn` and above fail. |
@@ -83,6 +84,31 @@ permissions:
   id-token: write
 
 jobs:
+  require-release-config:
+    name: Require release configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate platform configuration
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_RELEASE_ROLE_ARN: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+        shell: bash
+        run: |
+          missing=()
+          for variable_name in AWS_REGION AWS_RELEASE_ROLE_ARN ECR_REPOSITORY; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "::error::Missing required repository variable: $variable_name"
+              missing+=("$variable_name")
+            fi
+          done
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::Release cannot publish until AWS_REGION, AWS_RELEASE_ROLE_ARN, and ECR_REPOSITORY are set as repository variables."
+            exit 1
+          fi
+
   ci:
     uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@main
     permissions:
@@ -92,7 +118,9 @@ jobs:
       has_integration_tests: true
 
   release:
-    needs: ci
+    needs:
+      - ci
+      - require-release-config
     permissions:
       contents: read
       id-token: write
@@ -144,8 +172,10 @@ inputs, and GitHub OIDC — not long-lived AWS keys:
 - `ECR_REPOSITORY`
 
 Platform provisioning (Backstage / Terraform) sets these. Teams do not
-create the ECR repository or the IAM role. If they are missing, publish
-fails with a clear error; PR build and scan still run.
+create the ECR repository or the IAM role. If they are missing, Release
+fails immediately with an error naming the unset variables. Do not skip
+the publish job when they are empty: a skipped job makes the workflow
+succeed. PR build and scan still run without these variables.
 
 The image in ECR is:
 

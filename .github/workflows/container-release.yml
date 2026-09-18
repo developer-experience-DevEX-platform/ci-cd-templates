@@ -1,10 +1,10 @@
 # Container Release
 #
 #   pull_request:
-#     build-image  ->  vulnerability-scan, container-compliance
+#     check-release-config (no AWS vars)  ->  build-image  ->  vulnerability-scan, container-compliance
 #
 #   push to main:
-#     build-image  ->  vulnerability-scan, container-compliance  ->  sbom  ->  publish-ecr
+#     check-release-config (required)  ->  build-image  ->  vulnerability-scan, container-compliance  ->  sbom  ->  publish-ecr
 #
 # The same image.tar is scanned and (on main) published. The template decides
 # when to generate an SBOM and push to ECR; callers do not pass a publish flag.
@@ -44,8 +44,40 @@ permissions:
   contents: read
 
 jobs:
+  check-release-config:
+    name: Check release configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate platform configuration
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_RELEASE_ROLE_ARN: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          REQUIRE_RELEASE_VARS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        shell: bash
+        run: |
+          if [[ "$REQUIRE_RELEASE_VARS" != "true" ]]; then
+            echo "AWS release variables are required on push to main only."
+            exit 0
+          fi
+
+          missing=()
+          for variable_name in AWS_REGION AWS_RELEASE_ROLE_ARN ECR_REPOSITORY; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "::error::Missing required repository variable: $variable_name"
+              missing+=("$variable_name")
+            fi
+          done
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::Release cannot publish until AWS_REGION, AWS_RELEASE_ROLE_ARN, and ECR_REPOSITORY are set as repository variables."
+            exit 1
+          fi
+
   build-image:
     name: Build Image
+    needs: check-release-config
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

@@ -63,7 +63,9 @@ team:
 
 The reusable workflow assumes the role with GitHub OIDC
 (`id-token: write` on the publish job). ECR image tags are immutable.
-Trust is repository- and branch-scoped (`refs/heads/main`).
+Trust is repository- and branch-scoped (`refs/heads/main`). If any of
+these variables is unset, Release fails with an error. Do not `if:`-skip
+publish when they are empty; skipped jobs still mark the workflow green.
 
 The template publishes only on `push` to `main`. PR callers must keep
 `if: github.event_name == 'pull_request'` so `ci.yml` does not publish on
