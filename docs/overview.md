@@ -46,12 +46,13 @@ time. Release already calls the CI workflow before it publishes.
 
 Once a pull request exists, the same commit fires both `push` and
 `pull_request`, so the cheap parallel jobs run twice. That is the cost of
-feature-branch CI without a PR. `concurrency` cancels a superseded run of the
-same branch; it does not merge those two events into one.
+feature-branch CI without a PR. Put `github.event_name` in the concurrency
+group so those two events do not cancel each other. A newer commit still
+cancels an in-progress run of the **same** event on that branch.
 
 ```yaml
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 ```
 
