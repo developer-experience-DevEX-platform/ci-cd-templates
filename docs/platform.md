@@ -7,11 +7,30 @@ summarized here so teams know they are provisioned, not hand-copied.
 
 ## Pinning
 
-Documented callers use `@main`. That is the contract until tagged releases
-exist. A service under test may pin a branch; switch it back to `@main`
-before the service is considered done.
+Documented callers pin a git tag. The current release is `@v1.0.0`.
+That version covers Node.js CI, Python CI, container release, and
+Kubernetes GitOps. Lambda workflows are not in this release; do not
+call them from Backstage.
 
-Dependabot updates GitHub Actions in this repository weekly.
+```yaml
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.0.0
+```
+
+Do not follow `@main` for those four workflows. A service under test
+may pin a branch; switch it back to the release tag before the service
+is considered done.
+
+Terraform modules pin git tags the same way. CI/CD used to float on
+`@main`; that ends at `v1.0.0`.
+
+To cut a new version:
+
+1. Change a reviewed workflow on `main`.
+2. Tag `vX.Y.Z` on that commit.
+3. Bump the Backstage skeleton and every documented caller together.
+
+Dependabot updates GitHub Actions in this repository weekly. That does
+not bump caller pins.
 
 ## `SONAR_TOKEN`
 
