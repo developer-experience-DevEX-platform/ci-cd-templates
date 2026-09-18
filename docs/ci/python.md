@@ -68,7 +68,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/python-ci.yml@main
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/python-ci.yml@v1.0.0
     permissions:
       contents: read
     secrets: inherit

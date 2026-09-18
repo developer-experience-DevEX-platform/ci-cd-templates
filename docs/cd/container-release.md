@@ -62,7 +62,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@main
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@v1.0.0
 ```
 
 GitHub checks nested-job permissions at parse time, so this job still
@@ -84,7 +84,7 @@ permissions:
 
 jobs:
   ci:
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@main
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.0.0
     permissions:
       contents: read
     secrets: inherit
@@ -96,7 +96,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@main
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@v1.0.0
 ```
 
 Python services use `python-ci.yml` in the `ci` job. Lambda services omit
@@ -144,8 +144,11 @@ inputs, and GitHub OIDC — not long-lived AWS keys:
 - `ECR_REPOSITORY`
 
 Platform provisioning (Backstage / Terraform) sets these. Teams do not
-create the ECR repository or the IAM role. If they are missing, publish
-fails with a clear error; PR build and scan still run.
+create the ECR repository or the IAM role. If they are missing, **Publish
+to ECR** fails with `Missing platform configuration`. Do not skip the
+`release` job when the variables are empty: a skipped job never runs that
+step, so the workflow stays green. PR build and scan still run without
+these variables.
 
 The image in ECR is:
 

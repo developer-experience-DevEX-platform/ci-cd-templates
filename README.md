@@ -3,7 +3,8 @@
 Reusable GitHub Actions workflows for services in this organization.
 
 CI and CD are separate. CI, container release, and Kubernetes GitOps are
-documented. The Lambda workflows are not reviewed yet.
+documented and released as **`v1.0.0`**. Pin that tag. The Lambda
+workflows are not reviewed and are not in this version.
 
 ## Start here
 
