@@ -12,14 +12,19 @@ workflow does.
    - Node.js: `coverage/lcov.info`
    - Python: `coverage.xml`
 
-The first successful analysis creates the SonarCloud project when
-auto-provisioning is on. The project key is the GitHub repository name.
-Organization: `developer-experience-devex-platform`.
+SonarCloud will not auto-create a project from a pull-request scan, even
+when the token has **Create Projects**. The job posts once to
+`/api/projects/create` (key = repo name), then analyzes. If the project
+already exists, that step succeeds and analyze continues. Other create
+errors still fail the job.
+
+The org `SONAR_TOKEN` needs **Create Projects**, **Execute Analysis**, and
+**Browse**. Organization: `developer-experience-devex-platform`.
 
 ## When it runs
 
-On **pull requests**, after format, lint, unit tests, and the dependency
-scan pass. See [overview](../overview.md).
+On **pull requests** only, after format, lint, unit tests, and the
+dependency scan pass. See [overview](../overview.md).
 
 A failed gate fails the GitHub job. Integration tests do not run unless
 SonarQube succeeded.

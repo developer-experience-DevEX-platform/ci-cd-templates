@@ -159,6 +159,30 @@ jobs:
           name: coverage-lcov
           path: ${{ inputs.working_directory }}/coverage
 
+      - name: Provision SonarCloud project
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          http="$(curl -sS -o /tmp/sonar-create.json -w "%{http_code}" \
+            -u "${SONAR_TOKEN}:" -X POST \
+            "https://sonarcloud.io/api/projects/create" \
+            --data-urlencode "organization=developer-experience-devex-platform" \
+            --data-urlencode "project=${SONAR_PROJECT_KEY}" \
+            --data-urlencode "name=${SONAR_PROJECT_KEY}")"
+          if [ "${http}" = "200" ]; then
+            echo "Created SonarCloud project ${SONAR_PROJECT_KEY}"
+            exit 0
+          fi
+          if [ "${http}" = "400" ] && grep -qi "already exist" /tmp/sonar-create.json; then
+            echo "SonarCloud project ${SONAR_PROJECT_KEY} already exists"
+            exit 0
+          fi
+          echo "Failed to create SonarCloud project ${SONAR_PROJECT_KEY} (HTTP ${http})"
+          cat /tmp/sonar-create.json
+          exit 1
+
       - name: Analyze with SonarQube
         uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
         env:
