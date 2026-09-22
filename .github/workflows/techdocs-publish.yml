@@ -5,6 +5,9 @@
 # skips this job until TECHDOCS_S3_BUCKET is set; this workflow fails if
 # that variable is empty.
 #
+# On push, generate and publish only when docs/ or mkdocs.yml changed.
+# workflow_dispatch always publishes.
+#
 # Platform repository variables:
 #   AWS_REGION, AWS_RELEASE_ROLE_ARN, TECHDOCS_S3_BUCKET
 #
@@ -69,6 +72,8 @@ jobs:
 
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Validate docs source
         working-directory: ${{ inputs.working_directory }}
@@ -84,7 +89,89 @@ jobs:
             exit 1
           fi
 
+      - name: Detect documentation source changes
+        id: docs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          working_directory="${WORKING_DIRECTORY%/}"
+          if [[ -z "$working_directory" || "$working_directory" == "." ]]; then
+            docs_path="docs"
+            mkdocs_path="mkdocs.yml"
+          else
+            docs_path="$working_directory/docs"
+            mkdocs_path="$working_directory/mkdocs.yml"
+          fi
+
+          publish=true
+          {
+            echo "# TechDocs Publish"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          write_file_list() {
+            local diff_file="$1"
+            echo "## Documentation source changes" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            while IFS=$'\t' read -r status first second; do
+              [[ -z "$status" ]] && continue
+              case "$status" in
+                A*)
+                  echo "::notice::Added $first"
+                  echo "- Added \`$first\`" >> "$GITHUB_STEP_SUMMARY"
+                  ;;
+                M*)
+                  echo "::notice::Modified $first"
+                  echo "- Modified \`$first\`" >> "$GITHUB_STEP_SUMMARY"
+                  ;;
+                D*)
+                  echo "::notice::Deleted $first"
+                  echo "- Deleted \`$first\`" >> "$GITHUB_STEP_SUMMARY"
+                  ;;
+                R*)
+                  echo "::notice::Renamed $first -> $second"
+                  echo "- Renamed \`$first\` to \`$second\`" >> "$GITHUB_STEP_SUMMARY"
+                  ;;
+                *)
+                  echo "::notice::$status $first $second"
+                  echo "- \`$status\` \`$first\` \`$second\`" >> "$GITHUB_STEP_SUMMARY"
+                  ;;
+              esac
+            done < "$diff_file"
+            echo >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "::notice::Manual run; publishing documentation regardless of source diff."
+            echo "Manual run; publishing regardless of source diff." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            echo "::notice::First commit on this ref; publishing all documentation source."
+            echo "First commit on this ref; publishing all documentation source." >> "$GITHUB_STEP_SUMMARY"
+          elif ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            echo "::notice::Previous commit is not in history; publishing documentation."
+            echo "Previous commit \`$BEFORE_SHA\` is not in history; publishing." >> "$GITHUB_STEP_SUMMARY"
+          else
+            diff_file="$(mktemp)"
+            git diff --name-status --find-renames "$BEFORE_SHA" "$HEAD_SHA" -- "$docs_path" "$mkdocs_path" > "$diff_file"
+
+            if [[ ! -s "$diff_file" ]]; then
+              publish=false
+              echo "::notice::No documentation source changes; skipped generate and publish."
+              echo "No documentation source changes; skipped generate and publish." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::notice::Documentation source changed; generating and publishing."
+              write_file_list "$diff_file"
+            fi
+          fi
+
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
       - name: Configure AWS credentials
+        if: steps.docs.outputs.publish == 'true'
         uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
@@ -92,10 +179,12 @@ jobs:
           role-session-name: devex-techdocs-publish-${{ github.run_id }}
 
       - name: Generate TechDocs site
+        if: steps.docs.outputs.publish == 'true'
         working-directory: ${{ inputs.working_directory }}
         run: npx --yes @techdocs/cli@1.12.0 generate --source-dir . --output-dir ./site
 
       - name: Publish TechDocs site
+        if: steps.docs.outputs.publish == 'true'
         working-directory: ${{ inputs.working_directory }}
         env:
           TECHDOCS_S3_BUCKET: ${{ vars.TECHDOCS_S3_BUCKET }}
@@ -109,13 +198,14 @@ jobs:
           --directory ./site
 
       - name: Write TechDocs publish summary
+        if: steps.docs.outputs.publish == 'true'
         env:
           TECHDOCS_S3_BUCKET: ${{ vars.TECHDOCS_S3_BUCKET }}
           SERVICE_NAME: ${{ inputs.service_name }}
         shell: bash
         run: |
           {
-            echo "# TechDocs Publish"
+            echo "## Published"
             echo
             echo "- Entity: \`default/Component/$SERVICE_NAME\`"
             echo "- Bucket: \`$TECHDOCS_S3_BUCKET\`"
