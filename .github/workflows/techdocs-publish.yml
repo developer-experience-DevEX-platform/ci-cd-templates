@@ -221,12 +221,10 @@ jobs:
           TECHDOCS_S3_BUCKET: ${{ vars.TECHDOCS_S3_BUCKET }}
           SERVICE_NAME: ${{ inputs.service_name }}
         shell: bash
-        run: >
-          npx --yes @techdocs/cli@1.12.0 publish
-          --publisher-type awsS3
-          --storage-name "$TECHDOCS_S3_BUCKET"
-          --entity "default/Component/$SERVICE_NAME"
-          --directory ./site
+        run: |
+          prefix="default/component/${SERVICE_NAME}"
+          aws s3 sync ./site "s3://${TECHDOCS_S3_BUCKET}/${prefix}/" --delete
+          echo "Uploaded ./site to s3://${TECHDOCS_S3_BUCKET}/${prefix}/"
 
       - name: Write TechDocs publish summary
         if: steps.site.outputs.publish == 'true'
