@@ -45,7 +45,7 @@ In `.github/workflows/release.yml`, after CI:
     permissions:
       contents: read
       id-token: write
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.1.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.3.0
 ```
 
 Skip until Terraform has written `TECHDOCS_S3_BUCKET` so the first

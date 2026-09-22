@@ -7,14 +7,14 @@ summarized here so teams know they are provisioned, not hand-copied.
 
 ## Pinning
 
-Documented callers pin a git tag. The current release is `@v1.0.0`.
-That version covers Node.js CI, Python CI, container release, and
-Kubernetes GitOps. TechDocs publish is `@v1.1.0`. Lambda workflows are
-not in these releases; do not call them from Backstage.
+Documented callers pin a git tag. The current release is `@v1.3.0`.
+That version covers Node.js CI, Python CI, container release,
+Kubernetes GitOps, and TechDocs publish. Lambda workflows are
+not in this release; do not call them from Backstage.
 
 ```yaml
-uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.0.0
-uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.1.0
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.3.0
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.3.0
 ```
 
 Do not follow `@main` for those workflows. A service under test
@@ -38,9 +38,10 @@ not bump caller pins.
 Organization secret. Callers pass it with `secrets: inherit`. The reusable
 workflows declare it as a required secret.
 
-The token identity needs **Execute Analysis** and **Browse**. Analysis-only
-is not enough: the quality-gate step calls the SonarCloud API and returns
-403 without Browse.
+The token identity needs **Create Projects**, **Execute Analysis**, and
+**Browse**. Create Projects is required for the PR job's create call.
+Analysis-only is not enough: the quality-gate step calls the SonarCloud
+API and returns 403 without Browse.
 
 Prefer a bot or org token over a personal token. Personal tokens expire.
 
