@@ -1,0 +1,123 @@
+# TechDocs Publish
+#
+# Generates MkDocs via the TechDocs Docker image and publishes the site to
+# the shared platform S3 bucket. Call on push to main after CI. The caller
+# skips this job until TECHDOCS_S3_BUCKET is set; this workflow fails if
+# that variable is empty.
+#
+# Platform repository variables:
+#   AWS_REGION, AWS_RELEASE_ROLE_ARN, TECHDOCS_S3_BUCKET
+#
+name: TechDocs Publish
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Directory containing mkdocs.yml and docs/.
+        required: false
+        type: string
+        default: .
+      service_name:
+        description: Catalog entity name. Defaults to the repository name.
+        required: false
+        type: string
+        default: ${{ github.event.repository.name }}
+
+permissions:
+  contents: read
+
+jobs:
+  publish-docs:
+    name: Publish TechDocs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate platform configuration
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_RELEASE_ROLE_ARN: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          TECHDOCS_S3_BUCKET: ${{ vars.TECHDOCS_S3_BUCKET }}
+        shell: bash
+        run: |
+          missing_configuration=false
+
+          for variable_name in AWS_REGION AWS_RELEASE_ROLE_ARN TECHDOCS_S3_BUCKET; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "::error::Missing platform configuration: $variable_name"
+              missing_configuration=true
+            fi
+          done
+
+          if [[ "$missing_configuration" == "true" ]]; then
+            echo "This repository has not been fully provisioned for TechDocs publish. Platform configuration is normally created automatically by Backstage."
+            exit 1
+          fi
+
+      - name: Validate service name
+        env:
+          SERVICE_NAME: ${{ inputs.service_name }}
+        shell: bash
+        run: |
+          if [[ ! "$SERVICE_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || [[ ${#SERVICE_NAME} -gt 63 ]]; then
+            echo "::error::service_name must be lowercase kebab-case with at most 63 characters."
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate docs source
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          if [[ ! -f mkdocs.yml ]]; then
+            echo "::error::mkdocs.yml is required at the TechDocs source root."
+            exit 1
+          fi
+
+          if [[ ! -f docs/index.md ]]; then
+            echo "::error::docs/index.md is required."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: devex-techdocs-publish-${{ github.run_id }}
+
+      - name: Generate TechDocs site
+        working-directory: ${{ inputs.working_directory }}
+        run: npx --yes @techdocs/cli@1.12.0 generate --source-dir . --output-dir ./site
+
+      - name: Publish TechDocs site
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TECHDOCS_S3_BUCKET: ${{ vars.TECHDOCS_S3_BUCKET }}
+          SERVICE_NAME: ${{ inputs.service_name }}
+        shell: bash
+        run: >
+          npx --yes @techdocs/cli@1.12.0 publish
+          --publisher-type awsS3
+          --storage-name "$TECHDOCS_S3_BUCKET"
+          --entity "default/Component/$SERVICE_NAME"
+          --directory ./site
+
+      - name: Write TechDocs publish summary
+        env:
+          TECHDOCS_S3_BUCKET: ${{ vars.TECHDOCS_S3_BUCKET }}
+          SERVICE_NAME: ${{ inputs.service_name }}
+        shell: bash
+        run: |
+          {
+            echo "# TechDocs Publish"
+            echo
+            echo "- Entity: \`default/Component/$SERVICE_NAME\`"
+            echo "- Bucket: \`$TECHDOCS_S3_BUCKET\`"
+            echo "- Prefix: \`default/component/$SERVICE_NAME/\`"
+          } >> "$GITHUB_STEP_SUMMARY"

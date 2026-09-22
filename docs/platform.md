@@ -9,14 +9,15 @@ summarized here so teams know they are provisioned, not hand-copied.
 
 Documented callers pin a git tag. The current release is `@v1.0.0`.
 That version covers Node.js CI, Python CI, container release, and
-Kubernetes GitOps. Lambda workflows are not in this release; do not
-call them from Backstage.
+Kubernetes GitOps. TechDocs publish is `@v1.1.0`. Lambda workflows are
+not in these releases; do not call them from Backstage.
 
 ```yaml
 uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.0.0
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.1.0
 ```
 
-Do not follow `@main` for those four workflows. A service under test
+Do not follow `@main` for those workflows. A service under test
 may pin a branch; switch it back to the release tag before the service
 is considered done.
 
@@ -79,12 +80,16 @@ team:
 - `AWS_REGION`
 - `AWS_RELEASE_ROLE_ARN`
 - `ECR_REPOSITORY`
+- `TECHDOCS_S3_BUCKET`
 
-The reusable workflow assumes the role with GitHub OIDC
-(`id-token: write` on the publish job). ECR image tags are immutable.
-Trust is repository- and branch-scoped (`refs/heads/main`). If any of
-these variables is unset, Release fails with an error. Do not `if:`-skip
-publish when they are empty; skipped jobs still mark the workflow green.
+The reusable workflows assume the role with GitHub OIDC
+(`id-token: write` on the publish jobs). ECR image tags are immutable.
+TechDocs writes `default/component/<service>/` on the shared bucket.
+Trust is repository- and branch-scoped (`refs/heads/main`). If container
+release is invoked with empty AWS variables, that job fails. TechDocs
+publish is skipped by the caller until `TECHDOCS_S3_BUCKET` exists, then
+fails if the variables are empty. Do not skip inside the reusable
+workflows.
 
 The template publishes only on `push` to `main`. PR callers must keep
 `if: github.event_name == 'pull_request'` so `ci.yml` does not publish on
