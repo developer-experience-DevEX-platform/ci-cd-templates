@@ -7,14 +7,14 @@ summarized here so teams know they are provisioned, not hand-copied.
 
 ## Pinning
 
-Documented callers pin a git tag. The current release is `@v1.3.0`.
+Documented callers pin a git tag. The current release is `@v1.4.0`.
 That version covers Node.js CI, Python CI, container release,
 Kubernetes GitOps, and TechDocs publish. Lambda workflows are
 not in this release; do not call them from Backstage.
 
 ```yaml
-uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.3.0
-uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.3.0
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.4.0
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.4.0
 ```
 
 Do not follow `@main` for those workflows. A service under test
@@ -35,7 +35,8 @@ not bump caller pins.
 
 ## `SONAR_TOKEN`
 
-Organization secret. Callers pass it with `secrets: inherit`. The reusable
+Organization secret on **each** GitHub organization that uses these
+templates. Callers pass it with `secrets: inherit`. The reusable
 workflows declare it as a required secret.
 
 The token identity needs **Create Projects**, **Execute Analysis**, and
@@ -47,9 +48,17 @@ Prefer a bot or org token over a personal token. Personal tokens expire.
 
 ## SonarCloud project
 
-- Organization key: `developer-experience-devex-platform`
-- Project key: GitHub repository name (`github.event.repository.name`)
+- Organization key: `vars.SONAR_ORGANIZATION`, or the lowercase GitHub
+  organization login when that variable is empty.
+- Project key: `{github-org}_{repo}` in lowercase
+  (`developer-experience-devex-platform_payment-api`). SonarCloud keys
+  are global; the GitHub org prefix keeps them specific to the adopting
+  GitHub organization.
 - Host: `https://sonarcloud.io`
+
+Set `SONAR_ORGANIZATION` as a GitHub **organization** variable when the
+SonarCloud org key is not the lowercase GitHub login. Do not bake a
+single SonarCloud org into the reusable workflow.
 
 Assign the organization default **quality gate** to each project. A project
 with no gate reports status `NONE` and the GitHub check cannot enforce

@@ -158,26 +158,42 @@ jobs:
           path: ${{ inputs.working_directory }}
 
       - name: Provision SonarCloud project
+        id: sonar-project
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_PROJECT_KEY: ${{ github.event.repository.name }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
+          org="${SONAR_ORGANIZATION:-}"
+          if [[ -z "$org" ]]; then
+            org="$(printf '%s' "${GITHUB_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          fi
+          key="$(printf '%s_%s' "${GITHUB_OWNER}" "${GITHUB_REPO}" | tr '[:upper:]' '[:lower:]')"
+          echo "organization=${org}" >> "$GITHUB_OUTPUT"
+          echo "key=${key}" >> "$GITHUB_OUTPUT"
+          echo "Using SonarCloud organization ${org} and project key ${key}"
+
+          search="$(curl -sS -u "${SONAR_TOKEN}:" \
+            "https://sonarcloud.io/api/projects/search?organization=${org}&projects=${key}")"
+          count="$(printf '%s' "${search}" | jq '.components | length')"
+          if [ "${count}" -gt 0 ]; then
+            echo "SonarCloud project ${key} already exists in ${org}"
+            exit 0
+          fi
+
           http="$(curl -sS -o /tmp/sonar-create.json -w "%{http_code}" \
             -u "${SONAR_TOKEN}:" -X POST \
             "https://sonarcloud.io/api/projects/create" \
-            --data-urlencode "organization=developer-experience-devex-platform" \
-            --data-urlencode "project=${SONAR_PROJECT_KEY}" \
-            --data-urlencode "name=${SONAR_PROJECT_KEY}")"
+            --data-urlencode "organization=${org}" \
+            --data-urlencode "project=${key}" \
+            --data-urlencode "name=${GITHUB_REPO}")"
           if [ "${http}" = "200" ]; then
-            echo "Created SonarCloud project ${SONAR_PROJECT_KEY}"
+            echo "Created SonarCloud project ${key}"
             exit 0
           fi
-          if [ "${http}" = "400" ] && grep -qi "already exist" /tmp/sonar-create.json; then
-            echo "SonarCloud project ${SONAR_PROJECT_KEY} already exists"
-            exit 0
-          fi
-          echo "Failed to create SonarCloud project ${SONAR_PROJECT_KEY} (HTTP ${http})"
+          echo "Failed to create SonarCloud project ${key} (HTTP ${http})"
           cat /tmp/sonar-create.json
           exit 1
 
@@ -189,8 +205,8 @@ jobs:
         with:
           projectBaseDir: ${{ inputs.working_directory }}
           args: >-
-            -Dsonar.organization=developer-experience-devex-platform
-            -Dsonar.projectKey=${{ github.event.repository.name }}
+            -Dsonar.organization=${{ steps.sonar-project.outputs.organization }}
+            -Dsonar.projectKey=${{ steps.sonar-project.outputs.key }}
             -Dsonar.sources=src
             -Dsonar.tests=tests
             -Dsonar.python.coverage.reportPaths=coverage.xml

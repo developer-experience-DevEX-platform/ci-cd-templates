@@ -41,7 +41,7 @@ and the GitOps repository and branch are platform defaults.
     needs: release
     permissions:
       contents: read
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/kubernetes-gitops-cd.yml@v1.3.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/kubernetes-gitops-cd.yml@v1.4.0
     secrets: inherit
 ```
 
@@ -69,7 +69,7 @@ jobs:
   promote-production:
     permissions:
       contents: read
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/kubernetes-gitops-production-promotion.yml@v1.3.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/kubernetes-gitops-production-promotion.yml@v1.4.0
     secrets: inherit
     with:
       image_tag: ${{ inputs.image_tag }}
