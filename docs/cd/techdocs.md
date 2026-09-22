@@ -17,7 +17,15 @@ push to main:   ci  ->  publish-docs
 
 | Job | What it enforces |
 | --- | --- |
-| Publish TechDocs | `mkdocs.yml` and `docs/index.md` exist. OIDC into the service release role. Generate then publish `default/component/<service>/`. |
+| Publish TechDocs | `mkdocs.yml` and `docs/index.md` exist. On push, generate and publish only when `docs/` or `mkdocs.yml` changed. Manual **Run workflow** always publishes. |
+
+On push it diffs the previous commit against `github.sha` for those paths:
+
+- No changes → the job succeeds, writes a notice, and does not call MkDocs or S3.
+- Changes → lists added, modified, deleted, and renamed **source** files, then generate and publish.
+- First commit on the ref, or a missing previous SHA → publish.
+
+This is not a `paths:` filter on Release. Image publish and GitOps still run.
 
 ## What the service must provide
 
