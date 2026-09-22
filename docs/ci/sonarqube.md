@@ -14,12 +14,22 @@ workflow does.
 
 SonarCloud will not auto-create a project from a pull-request scan, even
 when the token has **Create Projects**. The job posts once to
-`/api/projects/create` (key = repo name), then analyzes. If the project
-already exists, that step succeeds and analyze continues. Other create
-errors still fail the job.
+`/api/projects/create`, then analyzes.
+
+The SonarCloud organization is not hardcoded. The job uses
+`vars.SONAR_ORGANIZATION` when that GitHub org or repo variable is set.
+Otherwise it uses the lowercase GitHub organization login. Each GitHub
+org that adopts the template sets its own `SONAR_TOKEN` and, if the
+SonarCloud org key differs from the GitHub login, `SONAR_ORGANIZATION`.
+
+The project key is `{github-org}_{repo}` in lowercase, for example
+`developer-experience-devex-platform_payment-api`. SonarCloud keys are
+global, so a bare `payment-api` can already belong to an unrelated org.
+"Already exists" is success only when search finds that key in the
+resolved SonarCloud organization.
 
 The org `SONAR_TOKEN` needs **Create Projects**, **Execute Analysis**, and
-**Browse**. Organization: `developer-experience-devex-platform`.
+**Browse**.
 
 ## When it runs
 

@@ -17,11 +17,12 @@ push to main:   ci  ->  publish-docs
 
 | Job | What it enforces |
 | --- | --- |
-| Publish TechDocs | `mkdocs.yml` and `docs/index.md` exist. On push, generate and publish only when `docs/` or `mkdocs.yml` changed. Manual **Run workflow** always publishes. |
+| Publish TechDocs | `mkdocs.yml` and `docs/index.md` exist. On push, generate and publish when `docs/` or `mkdocs.yml` changed, or when the S3 prefix is empty. Manual **Run workflow** always publishes. |
 
 On push it diffs the previous commit against `github.sha` for those paths:
 
-- No changes → the job succeeds, writes a notice, and does not call MkDocs or S3.
+- No changes and the S3 prefix already has objects → the job succeeds, writes a notice, and does not call MkDocs or S3.
+- No changes and the S3 prefix is empty (first run) → generate and publish so Backstage has a site.
 - Changes → lists added, modified, deleted, and renamed **source** files, then generate and publish.
 - First commit on the ref, or a missing previous SHA → publish.
 
@@ -45,7 +46,7 @@ In `.github/workflows/release.yml`, after CI:
     permissions:
       contents: read
       id-token: write
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.3.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.5.0
 ```
 
 Skip until Terraform has written `TECHDOCS_S3_BUCKET` so the first
