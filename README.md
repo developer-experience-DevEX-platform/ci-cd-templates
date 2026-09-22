@@ -12,6 +12,7 @@ workflows are not reviewed and are not in this version.
 2. [Overview](docs/overview.md) — job graph, triggers, what belongs in CI
 3. Your language: [Node.js](docs/ci/nodejs.md) or [Python](docs/ci/python.md)
 4. [Container release](docs/cd/container-release.md) — PR build and scan; publish on push to `main`
+5. [TechDocs publish](docs/cd/techdocs.md) — generate MkDocs in CI and store the site in S3
 
 ## CI
 
@@ -36,6 +37,7 @@ Shared CI topics:
 | --- | --- | --- |
 | Container release | Available | [docs/cd/container-release.md](docs/cd/container-release.md) |
 | Kubernetes GitOps | Available | [docs/cd/kubernetes-gitops.md](docs/cd/kubernetes-gitops.md) |
+| TechDocs publish | Available | [docs/cd/techdocs.md](docs/cd/techdocs.md) |
 | Node.js Lambda | Exists, not reviewed | — |
 
 How they fit together: [docs/cd/README.md](docs/cd/README.md).
