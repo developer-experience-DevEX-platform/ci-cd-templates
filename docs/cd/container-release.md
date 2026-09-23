@@ -62,7 +62,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@v1.6.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@v1.8.0
 ```
 
 GitHub checks nested-job permissions at parse time, so this job still
@@ -84,7 +84,7 @@ permissions:
 
 jobs:
   ci:
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.6.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.8.0
     permissions:
       contents: read
     secrets: inherit
@@ -96,11 +96,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@v1.6.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/container-release.yml@v1.8.0
 ```
 
-Python services use `python-ci.yml` in the `ci` job. Lambda services omit
-this workflow.
+Python services use `python-ci.yml` in the `ci` job. Go services use
+`go-ci.yml`. Lambda services omit this workflow.
 
 `image_name` defaults to the repository name. `image_tag` defaults to
 `github.sha`. Pass them only when those defaults are wrong.

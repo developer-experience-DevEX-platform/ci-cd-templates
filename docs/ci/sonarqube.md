@@ -11,6 +11,7 @@ workflow does.
 2. Produce the coverage file the language contract names:
    - Node.js: `coverage/lcov.info`
    - Python: `coverage.xml`
+   - Go: `coverage.out`
 
 SonarCloud will not auto-create a project from a pull-request scan, even
 when the token has **Create Projects**. The job posts once to

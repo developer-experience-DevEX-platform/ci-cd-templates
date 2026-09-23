@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.6.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.8.0
     permissions:
       contents: read
     secrets: inherit
@@ -36,13 +36,15 @@ jobs:
 
 **Python** — same file, with `python-ci.yml` instead of `nodejs-ci.yml`.
 
+**Go** — same file, with `go-ci.yml` instead of `nodejs-ci.yml`.
+
 `secrets: inherit` is required so the org `SONAR_TOKEN` reaches the reusable
 workflow. Set `has_integration_tests: true` when the service implements the
 platform integration command. Leave it `false` to skip that job, including
 when the team adds their own integration job in this caller — they own that
 stage. See [integration tests](ci/integration-tests.md).
 
-Full inputs and the command contract: [Node.js](ci/nodejs.md), [Python](ci/python.md).
+Full inputs and the command contract: [Node.js](ci/nodejs.md), [Python](ci/python.md), [Go](ci/go.md).
 When the service also has `release.yml`, ignore `main` on this caller so a
 merge does not start CI and Release together. See [overview](overview.md).
 
@@ -50,17 +52,17 @@ merge does not start CI and Release together. See [overview](overview.md).
 
 The workflow calls named commands. The service implements them.
 
-| What CI runs | Node.js | Python |
-| --- | --- | --- |
-| Install | `npm ci` (needs `package-lock.json`) | `uv sync --frozen` (needs `uv.lock`) |
-| Format | `npm run format:check` | `make format-check` |
-| Lint | `npm run lint` | `make lint` |
-| Unit tests + coverage | `npm test -- --coverage` → `coverage/lcov.info` | `make test` → `coverage.xml` |
-| Integration tests | `npm run test:integration` | `make test-integration` |
+| What CI runs | Node.js | Python | Go |
+| --- | --- | --- | --- |
+| Install | `npm ci` (needs `package-lock.json`) | `uv sync --frozen` (needs `uv.lock`) | `go mod download` (needs `go.sum`) |
+| Format | `npm run format:check` | `make format-check` | `make format-check` |
+| Lint | `npm run lint` | `make lint` | `make lint` |
+| Unit tests + coverage | `npm test -- --coverage` → `coverage/lcov.info` | `make test` → `coverage.xml` | `make test` → `coverage.out` |
+| Integration tests | `npm run test:integration` | `make test-integration` | `make test-integration` |
 
 Golden-path services already ship these scripts (Prettier, ESLint, Jest) or
-Makefile targets (Black, Ruff, pytest). Change a tool in the service repo; do
-not add workflow inputs for it.
+Makefile targets (Black, Ruff, pytest, or gofmt / golangci-lint / `go test`).
+Change a tool in the service repo; do not add workflow inputs for it.
 
 ## 3. Confirm it works
 

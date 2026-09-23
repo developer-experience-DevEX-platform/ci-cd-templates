@@ -10,7 +10,7 @@ workflows are not reviewed and are not in this version.
 
 1. [Getting started](docs/getting-started.md) — paste a CI caller and meet the contract
 2. [Overview](docs/overview.md) — job graph, triggers, what belongs in CI
-3. Your language: [Node.js](docs/ci/nodejs.md) or [Python](docs/ci/python.md)
+3. Your language: [Node.js](docs/ci/nodejs.md), [Python](docs/ci/python.md), or [Go](docs/ci/go.md)
 4. [Container release](docs/cd/container-release.md) — PR build and scan; publish on push to `main`
 5. [TechDocs publish](docs/cd/techdocs.md) — generate MkDocs in CI and store the site in S3
 
@@ -23,7 +23,7 @@ workflow runs a fixed process; the service chooses the tools.
 | --- | --- | --- |
 | Node.js | Available | [docs/ci/nodejs.md](docs/ci/nodejs.md) |
 | Python | Available | [docs/ci/python.md](docs/ci/python.md) |
-| Go | Not shipped | [docs/ci/go.md](docs/ci/go.md) |
+| Go | Available | [docs/ci/go.md](docs/ci/go.md) |
 | .NET | Not shipped | [docs/ci/dotnet.md](docs/ci/dotnet.md) |
 
 Shared CI topics:
