@@ -32,8 +32,8 @@ performance, and regression against a live environment belong in CD.
 
 ### Do not edit the caller to add a dependency
 
-Add a test file and a container in the suite. Jest (Node) or pytest (Python)
-picks it up. `.github/workflows/ci.yml` stays as it is.
+Add a test file and a container in the suite. Jest (Node), pytest (Python),
+or `go test` (Go) picks it up. `.github/workflows/ci.yml` stays as it is.
 
 `integration_test_vars` is only for non-secret values the suite already
 understands (feature flags). It is not a substitute for starting a container.
@@ -65,6 +65,11 @@ Use Testcontainers or Compose from `make test-integration`. Mark those tests
 so `make test` (unit) does not run them. Add extra test libraries with
 `uv add --dev`. The golden-path sample follows the same pattern as Node.js.
 
+### Go
+
+Use testcontainers-go (or Compose) from `make test-integration`. Mark those
+tests with `//go:build integration` so `make test` does not run them.
+
 ### Docker
 
 Required locally. GitHub-hosted `ubuntu-latest` already has it. If the suite
@@ -83,7 +88,7 @@ on the standard stages only.
 ```yaml
 jobs:
   ci:
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.6.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.8.0
     permissions:
       contents: read
     secrets: inherit
