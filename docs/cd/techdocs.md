@@ -46,12 +46,14 @@ In `.github/workflows/release.yml`, after CI:
     permissions:
       contents: read
       id-token: write
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.5.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.6.0
 ```
 
 Skip until Terraform has written `TECHDOCS_S3_BUCKET` so the first
-scaffold commit stays green. Once the job runs, missing variables fail
-the workflow. Do not skip inside the reusable workflow.
+scaffold commit stays green. The reusable job uses `continue-on-error`,
+so a failed docs publish stays visible in Actions and does not fail
+Release. Image publish and GitOps still run. Do not skip inside the
+reusable workflow.
 
 `service_name` defaults to the repository name, which must match
 `metadata.name` in `catalog-info.yaml`.

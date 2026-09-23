@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.5.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.6.0
     permissions:
       contents: read
     secrets: inherit
