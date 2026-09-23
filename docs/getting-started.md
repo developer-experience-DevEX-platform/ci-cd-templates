@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.5.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.6.0
     permissions:
       contents: read
     secrets: inherit
@@ -52,7 +52,7 @@ The workflow calls named commands. The service implements them.
 
 | What CI runs | Node.js | Python |
 | --- | --- | --- |
-| Install | `npm ci` (needs `package-lock.json`) | `pip install -r requirements.txt` |
+| Install | `npm ci` (needs `package-lock.json`) | `uv sync --frozen` (needs `uv.lock`) |
 | Format | `npm run format:check` | `make format-check` |
 | Lint | `npm run lint` | `make lint` |
 | Unit tests + coverage | `npm test -- --coverage` → `coverage/lcov.info` | `make test` → `coverage.xml` |
