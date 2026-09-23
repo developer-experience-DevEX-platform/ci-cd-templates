@@ -62,8 +62,8 @@ unset so the AWS SDK talks to real AWS.
 ### Python
 
 Use Testcontainers or Compose from `make test-integration`. Mark those tests
-so `make test` (unit) does not run them. The golden-path sample will follow
-the same pattern as Node.js when the Python skeleton ships.
+so `make test` (unit) does not run them. Add extra test libraries with
+`uv add --dev`. The golden-path sample follows the same pattern as Node.js.
 
 ### Docker
 

@@ -8,15 +8,15 @@ scripts, so the named commands are `Makefile` targets.
 ## Commands
 
 ```text
-pip install -r requirements.txt
+uv sync --frozen
 make format-check
 make lint
 make test
 make test-integration         only when has_integration_tests is true
 ```
 
-The service must be a pip project with a `requirements.txt`. Targets must
-meet this contract:
+The service must be a uv project with `pyproject.toml` and `uv.lock`.
+Targets must meet this contract:
 
 - `format-check` exits non-zero when formatting drifts.
 - `lint` exits non-zero on lint violations.
@@ -28,23 +28,29 @@ meet this contract:
 The golden path ships this Makefile, backed by Black, Ruff, and pytest:
 
 ```makefile
-.PHONY: format-check lint test test-integration
+.PHONY: format-check lint test test-integration verify
 
 format-check:
-	black --check .
+	uv run black --check .
 
 lint:
-	ruff check .
+	uv run ruff check .
 
 test:
-	pytest -m "not integration" --cov=src --cov-report=xml --cov-report=term-missing
+	uv run pytest -m "not integration" --cov=src --cov-report=xml --cov-report=term-missing
 
 test-integration:
-	pytest -m integration
+	uv run pytest -m integration
+
+verify: format-check lint test
 ```
 
-Swap a tool in the service `Makefile`; the workflow does not change. Poetry
-and pipenv are not supported.
+Swap a tool in the service `Makefile`; the workflow does not change. pip,
+Poetry, and pipenv are not supported.
+
+Runtime dependencies live in `[project]` in `pyproject.toml`. Dev tools
+and test libraries live in `[dependency-groups] dev`. `uv sync --frozen`
+installs both. The container image uses `uv sync --frozen --no-dev`.
 
 SonarQube reads `src` as sources, `tests` as tests, and `coverage.xml`.
 
@@ -86,7 +92,7 @@ that is only for [container release](../cd/container-release.md).
 
 | Input | Default | Notes |
 | --- | --- | --- |
-| `working_directory` | `.` | Directory containing `requirements.txt` and `Makefile`. |
+| `working_directory` | `.` | Directory containing `pyproject.toml`, `uv.lock`, and `Makefile`. |
 | `python_version` | `3.13` | |
 | `has_dockerfile` | `true` | Set to `false` for Lambda. |
 | `dockerfile_path` | `./Dockerfile` | Relative to the repository root. |

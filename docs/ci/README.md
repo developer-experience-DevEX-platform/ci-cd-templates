@@ -23,7 +23,7 @@ the reusable workflow already owns them.
 
 | Input | Default | Notes |
 | --- | --- | --- |
-| `working_directory` | `.` | Directory that contains the language manifest (`package.json` or `requirements.txt`). |
+| `working_directory` | `.` | Directory that contains the language manifest (`package.json` or `pyproject.toml` + `uv.lock`). |
 | `has_dockerfile` | `true` | Set to `false` for Lambda services. |
 | `dockerfile_path` | `./Dockerfile` | Path relative to the **repository root**, not `working_directory`. |
 | `has_integration_tests` | `false` | Set to `true` to run the platform hermetic job. Leave `false` to skip it, including when the team owns a separate job in the caller. |
