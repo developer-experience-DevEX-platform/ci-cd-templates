@@ -1,0 +1,225 @@
+# Frontend CI
+#
+#   push / pull_request:
+#     format-lint  ||  unit-tests  ||  dependency-scan
+#
+#   pull_request only:
+#     sonarqube  ->  build
+#
+# No Dockerfile, no image, no Kubernetes. The PR build proves dist/
+# compiles. Teams own any extra browser or component tests in their repo.
+#
+name: Frontend CI
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Directory containing package.json.
+        required: false
+        type: string
+        default: .
+      node_version:
+        description: Node.js version
+        required: false
+        type: string
+        default: "24"
+    secrets:
+      SONAR_TOKEN:
+        description: SonarCloud token from the GitHub organization. Callers pass it with secrets inherit.
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_PREFER_OFFLINE: "true"
+
+jobs:
+  static-checks:
+    name: Format & Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: npm ci
+
+      - name: Check formatting
+        working-directory: ${{ inputs.working_directory }}
+        run: npm run format:check
+
+      - name: Run linting
+        if: ${{ !cancelled() }}
+        working-directory: ${{ inputs.working_directory }}
+        run: npm run lint
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: npm ci
+
+      - name: Run unit tests
+        working-directory: ${{ inputs.working_directory }}
+        run: npm test -- --coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-lcov
+          path: ${{ inputs.working_directory }}/coverage/lcov.info
+          if-no-files-found: error
+
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run Trivy dependency scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working_directory }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+
+  sast:
+    name: SonarQube
+    if: github.event_name == 'pull_request'
+    needs:
+      - static-checks
+      - unit-tests
+      - dependency-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-lcov
+          path: ${{ inputs.working_directory }}/coverage
+
+      - name: Provision SonarCloud project
+        id: sonar-project
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          org="${SONAR_ORGANIZATION:-}"
+          if [[ -z "$org" ]]; then
+            org="$(printf '%s' "${GITHUB_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          fi
+          key="$(printf '%s_%s' "${GITHUB_OWNER}" "${GITHUB_REPO}" | tr '[:upper:]' '[:lower:]')"
+          echo "organization=${org}" >> "$GITHUB_OUTPUT"
+          echo "key=${key}" >> "$GITHUB_OUTPUT"
+          echo "Using SonarCloud organization ${org} and project key ${key}"
+
+          search="$(curl -sS -u "${SONAR_TOKEN}:" \
+            "https://sonarcloud.io/api/projects/search?organization=${org}&projects=${key}")"
+          count="$(printf '%s' "${search}" | jq '.components | length')"
+          if [ "${count}" -gt 0 ]; then
+            echo "SonarCloud project ${key} already exists in ${org}"
+            exit 0
+          fi
+
+          http="$(curl -sS -o /tmp/sonar-create.json -w "%{http_code}" \
+            -u "${SONAR_TOKEN}:" -X POST \
+            "https://sonarcloud.io/api/projects/create" \
+            --data-urlencode "organization=${org}" \
+            --data-urlencode "project=${key}" \
+            --data-urlencode "name=${GITHUB_REPO}")"
+          if [ "${http}" = "200" ]; then
+            echo "Created SonarCloud project ${key}"
+            exit 0
+          fi
+          echo "Failed to create SonarCloud project ${key} (HTTP ${http})"
+          cat /tmp/sonar-create.json
+          exit 1
+
+      - name: Analyze with SonarQube
+        uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          projectBaseDir: ${{ inputs.working_directory }}
+          args: >-
+            -Dsonar.organization=${{ steps.sonar-project.outputs.organization }}
+            -Dsonar.projectKey=${{ steps.sonar-project.outputs.key }}
+            -Dsonar.sources=src
+            -Dsonar.tests=src
+            -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.coverage.exclusions=**/main.tsx,**/main.ts,**/index.ts
+
+      - name: Enforce quality gate
+        uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1.2.1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+
+  build:
+    name: Build
+    if: github.event_name == 'pull_request'
+    needs:
+      - sast
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: npm ci
+
+      - name: Build static site
+        working-directory: ${{ inputs.working_directory }}
+        run: npm run build

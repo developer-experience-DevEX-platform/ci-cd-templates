@@ -9,7 +9,7 @@ workflow does.
 1. Pass `secrets: inherit` on the caller so org secret `SONAR_TOKEN` is
    available.
 2. Produce the coverage file the language contract names:
-   - Node.js: `coverage/lcov.info`
+   - Node.js and Frontend: `coverage/lcov.info`
    - Python: `coverage.xml`
    - Go: `coverage.out`
 

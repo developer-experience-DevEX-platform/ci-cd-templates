@@ -38,13 +38,18 @@ jobs:
 
 **Go** — same file, with `go-ci.yml` instead of `nodejs-ci.yml`.
 
+**Frontend** — same file, with `frontend-ci.yml`. No `has_integration_tests`.
+On a pull request that workflow also builds `dist/`. Teams add their own
+browser tests if they want them.
+See [Frontend CI](ci/frontend.md).
+
 `secrets: inherit` is required so the org `SONAR_TOKEN` reaches the reusable
 workflow. Set `has_integration_tests: true` when the service implements the
 platform integration command. Leave it `false` to skip that job, including
 when the team adds their own integration job in this caller — they own that
 stage. See [integration tests](ci/integration-tests.md).
 
-Full inputs and the command contract: [Node.js](ci/nodejs.md), [Python](ci/python.md), [Go](ci/go.md).
+Full inputs and the command contract: [Node.js](ci/nodejs.md), [Python](ci/python.md), [Go](ci/go.md), [Frontend](ci/frontend.md).
 When the service also has `release.yml`, ignore `main` on this caller so a
 merge does not start CI and Release together. See [overview](overview.md).
 
@@ -52,13 +57,14 @@ merge does not start CI and Release together. See [overview](overview.md).
 
 The workflow calls named commands. The service implements them.
 
-| What CI runs | Node.js | Python | Go |
-| --- | --- | --- | --- |
-| Install | `npm ci` (needs `package-lock.json`) | `uv sync --frozen` (needs `uv.lock`) | `go mod download` (needs `go.sum`) |
-| Format | `npm run format:check` | `make format-check` | `make format-check` |
-| Lint | `npm run lint` | `make lint` | `make lint` |
-| Unit tests + coverage | `npm test -- --coverage` → `coverage/lcov.info` | `make test` → `coverage.xml` | `make test` → `coverage.out` |
-| Integration tests | `npm run test:integration` | `make test-integration` | `make test-integration` |
+| What CI runs | Node.js | Python | Go | Frontend |
+| --- | --- | --- | --- | --- |
+| Install | `npm ci` (needs `package-lock.json`) | `uv sync --frozen` (needs `uv.lock`) | `go mod download` (needs `go.sum`) | `npm ci` |
+| Format | `npm run format:check` | `make format-check` | `make format-check` | `npm run format:check` |
+| Lint | `npm run lint` | `make lint` | `make lint` | `npm run lint` |
+| Unit tests + coverage | `npm test -- --coverage` → `coverage/lcov.info` | `make test` → `coverage.xml` | `make test` → `coverage.out` | `npm test -- --coverage` → `coverage/lcov.info` |
+| Integration tests | `npm run test:integration` | `make test-integration` | `make test-integration` | — |
+| Build | — | — | — | `npm run build` (PR only) |
 
 Golden-path services already ship these scripts (Prettier, ESLint, Jest) or
 Makefile targets (Black, Ruff, pytest, or gofmt / golangci-lint / `go test`).
@@ -78,3 +84,4 @@ SonarQube, then integration tests (if you enabled them).
 - [Hermetic integration tests](ci/integration-tests.md)
 - [Reading a SonarQube failure](ci/sonarqube.md)
 - [Container release](cd/container-release.md) — PR build and scan; publish only on push to `main`
+- [Static site release](cd/static-site-release.md) — Vite `dist/` to S3 and CloudFront on `main`

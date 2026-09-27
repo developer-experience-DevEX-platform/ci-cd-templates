@@ -13,6 +13,7 @@ document commands, coverage files, and inputs that differ.
 | Dependency scan | Every push and PR | Trivy filesystem scan; `CRITICAL` and `HIGH` fail the job |
 | SonarQube | Pull requests, after the jobs above | Coverage uploaded; organization quality gate |
 | Integration tests | Pull requests, if enabled | Hermetic suite after SonarQube succeeds |
+| Build | Frontend pull requests only | `npm run build` writes `dist/` |
 
 Lint still runs if format fails, so both can be fixed in one push.
 
@@ -38,7 +39,7 @@ from the GitHub organization. Teams do not create a per-repo token.
 
 The CI job is `permissions: contents: read` in every caller, including the
 `ci` job inside `release.yml`. OIDC (`id-token: write`) is only for
-container publish, not for CI.
+container or static-site publish, not for CI.
 
 [SonarQube for teams](sonarqube.md) · [Platform setup](../platform.md)
 
@@ -64,4 +65,5 @@ Not supported:
 - [Node.js](nodejs.md)
 - [Python](python.md)
 - [Go](go.md)
+- [Frontend](frontend.md)
 - [.NET](dotnet.md) (not shipped)

@@ -9,8 +9,10 @@ summarized here so teams know they are provisioned, not hand-copied.
 
 Documented callers pin a git tag. The current release is `@v1.8.0`.
 That version covers Node.js CI, Python CI, Go CI, container release,
-Kubernetes GitOps, and TechDocs publish. Lambda workflows are
-not in this release; do not call them from Backstage.
+Kubernetes GitOps, and TechDocs publish. Frontend CI and static site
+release are on `main` and ship in the next tag; pin that tag, not
+`v1.8.0` or `@main`. Lambda workflows are not in this release; do not
+call them from Backstage.
 
 ```yaml
 uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.8.0
@@ -81,6 +83,20 @@ projects they work on. They do not need Analyze.
 The CI token is the identity that analyzes. Platform admins Administer the
 org. Member sync with GitHub is a SonarCloud Team/Enterprise feature; on
 Free, grant project permissions manually as needed.
+
+## Static site release variables
+
+Set per repository by Terraform (`static-site-release`), not by the
+team:
+
+- `AWS_REGION`
+- `AWS_RELEASE_ROLE_ARN`
+- `STATIC_SITE_BUCKET`
+- `CLOUDFRONT_DISTRIBUTION_ID`
+- `TECHDOCS_S3_BUCKET`
+
+The caller skips publish until `STATIC_SITE_BUCKET` exists. After that,
+empty variables fail the job. Details: [static site release](cd/static-site-release.md).
 
 ## Container release variables
 
