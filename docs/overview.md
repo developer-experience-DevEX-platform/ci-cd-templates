@@ -39,7 +39,11 @@ on:
 | --- | --- |
 | Push to a feature branch | Parallel jobs. Confirm these before opening a PR. |
 | Pull request | Parallel jobs again, then SonarQube, then integration tests. |
-| Push to `main` | `release.yml` only: CI (parallel jobs), then publish, then GitOps. Missing AWS vars fail publish; do not skip that job. |
+| Push to `main` | `release.yml` only: CI (parallel jobs), then publish. Containers then GitOps. Static sites sync S3 and invalidate CloudFront. Skip container or site publish until the bucket/repo variable exists; missing vars inside those workflows fail. |
+
+Frontend sites use the same feature-branch and PR triggers. They have no
+Dockerfile job. On a pull request, after SonarQube they build `dist/`.
+Details: [Frontend CI](ci/frontend.md).
 
 `ci.yml` ignores `main` so a merge does not start CI and Release at the same
 time. Release already calls the CI workflow before it publishes.

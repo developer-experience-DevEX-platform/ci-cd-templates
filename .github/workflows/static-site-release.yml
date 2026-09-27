@@ -1,0 +1,128 @@
+# Static Site Release
+#
+# Builds the Vite site and publishes that dist/ to S3, then invalidates
+# CloudFront. Call on push to main after CI. The caller skips this job
+# until STATIC_SITE_BUCKET is set; this workflow fails if required
+# variables are empty.
+#
+# Publish is push to main only. workflow_dispatch does not publish.
+#
+# Platform repository variables:
+#   AWS_REGION, AWS_RELEASE_ROLE_ARN, STATIC_SITE_BUCKET,
+#   CLOUDFRONT_DISTRIBUTION_ID
+#
+name: Static Site Release
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: Directory containing package.json.
+        required: false
+        type: string
+        default: .
+      node_version:
+        description: Node.js version
+        required: false
+        type: string
+        default: "24"
+
+permissions:
+  contents: read
+
+env:
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_PREFER_OFFLINE: "true"
+
+jobs:
+  publish-site:
+    name: Publish Static Site
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate platform configuration
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_RELEASE_ROLE_ARN: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          STATIC_SITE_BUCKET: ${{ vars.STATIC_SITE_BUCKET }}
+          CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+        shell: bash
+        run: |
+          missing_configuration=false
+
+          for variable_name in AWS_REGION AWS_RELEASE_ROLE_ARN STATIC_SITE_BUCKET CLOUDFRONT_DISTRIBUTION_ID; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "::error::Missing platform configuration: $variable_name"
+              missing_configuration=true
+            fi
+          done
+
+          if [[ "$missing_configuration" == "true" ]]; then
+            echo "This repository has not been fully provisioned for static site releases. Platform configuration is normally created automatically by Backstage."
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: npm ci
+
+      - name: Build static site
+        working-directory: ${{ inputs.working_directory }}
+        run: npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: devex-static-site-release-${{ github.run_id }}
+
+      - name: Publish site to S3
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          STATIC_SITE_BUCKET: ${{ vars.STATIC_SITE_BUCKET }}
+        shell: bash
+        run: |
+          if [[ ! -d dist ]]; then
+            echo "::error::npm run build did not produce a dist/ directory."
+            exit 1
+          fi
+          aws s3 sync dist/ "s3://${STATIC_SITE_BUCKET}/" --delete
+
+      - name: Invalidate CloudFront
+        env:
+          CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+        shell: bash
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --paths "/*"
+
+      - name: Write static site release summary
+        env:
+          STATIC_SITE_BUCKET: ${{ vars.STATIC_SITE_BUCKET }}
+          CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+        shell: bash
+        run: |
+          {
+            echo "# Static Site Release"
+            echo
+            echo "- Bucket: \`$STATIC_SITE_BUCKET\`"
+            echo "- Distribution: \`$CLOUDFRONT_DISTRIBUTION_ID\`"
+            echo "- Invalidation: \`/*\`"
+          } >> "$GITHUB_STEP_SUMMARY"
