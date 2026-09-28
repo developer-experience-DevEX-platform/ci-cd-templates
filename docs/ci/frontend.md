@@ -74,7 +74,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/frontend-ci.yml@v1.10.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/frontend-ci.yml@v1.11.0
     permissions:
       contents: read
     secrets: inherit

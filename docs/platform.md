@@ -7,16 +7,15 @@ summarized here so teams know they are provisioned, not hand-copied.
 
 ## Pinning
 
-Documented callers pin a git tag. The current release is `@v1.8.0`.
-That version covers Node.js CI, Python CI, Go CI, container release,
-Kubernetes GitOps, and TechDocs publish. Frontend CI and static site
-release are on `main` and ship in the next tag; pin that tag, not
-`v1.8.0` or `@main`. Lambda workflows are not in this release; do not
-call them from Backstage.
+Documented callers pin a git tag. The current release is `@v1.11.0`.
+That version covers Node.js CI, Python CI, Go CI, Frontend CI, static
+site release, container release, Kubernetes GitOps, and TechDocs
+publish. Lambda workflows are not in this release; do not call them
+from Backstage.
 
 ```yaml
-uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.8.0
-uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.8.0
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.11.0
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.11.0
 ```
 
 Do not follow `@main` for those workflows. A service under test
