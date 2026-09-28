@@ -12,3 +12,19 @@ updates:
           - "*"
     commit-message:
       prefix: chore
+
+  - package-ecosystem: github-actions
+    directories:
+      - /.github/actions/setup-npm
+      - /.github/actions/setup-uv
+      - /.github/actions/setup-go
+      - /.github/actions/trivy-fs
+      - /.github/actions/hadolint
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: chore

@@ -37,19 +37,11 @@ jobs:
       checksum: ${{ steps.checksum.outputs.sha256 }}
       checksum_base64: ${{ steps.checksum.outputs.sha256_base64 }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Set up npm
+        uses: ./.github/actions/setup-npm
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ${{ inputs.working_directory }}
-        run: npm ci
+          node_version: ${{ env.NODE_VERSION }}
+          working_directory: ${{ inputs.working_directory }}
 
       - name: Build Lambda
         working-directory: ${{ inputs.working_directory }}

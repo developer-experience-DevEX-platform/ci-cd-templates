@@ -66,4 +66,5 @@ Not supported:
 - [Python](python.md)
 - [Go](go.md)
 - [Frontend](frontend.md)
+- [Composite actions](actions.md)
 - [.NET](dotnet.md) (not shipped)

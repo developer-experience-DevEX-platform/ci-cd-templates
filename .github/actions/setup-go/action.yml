@@ -1,0 +1,28 @@
+name: Setup Go
+description: Check out the repo, install Go, and run go mod download.
+
+inputs:
+  go_version:
+    description: Go version
+    required: true
+  working_directory:
+    description: Directory containing go.mod and go.sum
+    required: false
+    default: .
+
+runs:
+  using: composite
+  steps:
+    - name: Check out repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: ${{ inputs.go_version }}
+        cache-dependency-path: ${{ inputs.working_directory }}/go.sum
+
+    - name: Install dependencies
+      working-directory: ${{ inputs.working_directory }}
+      shell: bash
+      run: go mod download

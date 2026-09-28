@@ -1,0 +1,54 @@
+name: Provision SonarCloud project
+description: Find or create the SonarCloud project for this GitHub repository.
+
+outputs:
+  organization:
+    description: SonarCloud organization key
+    value: ${{ steps.sonar-project.outputs.organization }}
+  key:
+    description: SonarCloud project key
+    value: ${{ steps.sonar-project.outputs.key }}
+
+runs:
+  using: composite
+  steps:
+    - name: Provision SonarCloud project
+      id: sonar-project
+      env:
+        SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+        SONAR_ORGANIZATION: ${{ env.SONAR_ORGANIZATION }}
+        GITHUB_OWNER: ${{ github.repository_owner }}
+        GITHUB_REPO: ${{ github.event.repository.name }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        org="${SONAR_ORGANIZATION:-}"
+        if [[ -z "$org" ]]; then
+          org="$(printf '%s' "${GITHUB_OWNER}" | tr '[:upper:]' '[:lower:]')"
+        fi
+        key="$(printf '%s_%s' "${GITHUB_OWNER}" "${GITHUB_REPO}" | tr '[:upper:]' '[:lower:]')"
+        echo "organization=${org}" >> "$GITHUB_OUTPUT"
+        echo "key=${key}" >> "$GITHUB_OUTPUT"
+        echo "Using SonarCloud organization ${org} and project key ${key}"
+
+        search="$(curl -sS -u "${SONAR_TOKEN}:" \
+          "https://sonarcloud.io/api/projects/search?organization=${org}&projects=${key}")"
+        count="$(printf '%s' "${search}" | jq '.components | length')"
+        if [ "${count}" -gt 0 ]; then
+          echo "SonarCloud project ${key} already exists in ${org}"
+          exit 0
+        fi
+
+        http="$(curl -sS -o /tmp/sonar-create.json -w "%{http_code}" \
+          -u "${SONAR_TOKEN}:" -X POST \
+          "https://sonarcloud.io/api/projects/create" \
+          --data-urlencode "organization=${org}" \
+          --data-urlencode "project=${key}" \
+          --data-urlencode "name=${GITHUB_REPO}")"
+        if [ "${http}" = "200" ]; then
+          echo "Created SonarCloud project ${key}"
+          exit 0
+        fi
+        echo "Failed to create SonarCloud project ${key} (HTTP ${http})"
+        cat /tmp/sonar-create.json
+        exit 1

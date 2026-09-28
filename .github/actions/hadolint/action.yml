@@ -1,0 +1,20 @@
+name: Hadolint
+description: Check out the repo and lint the Dockerfile.
+
+inputs:
+  dockerfile_path:
+    description: Path to the Dockerfile, relative to the repository root
+    required: false
+    default: ./Dockerfile
+
+runs:
+  using: composite
+  steps:
+    - name: Check out repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Run Hadolint
+      env:
+        DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+      shell: bash
+      run: docker run --rm -i hadolint/hadolint:v2.15.1 < "$DOCKERFILE_PATH"

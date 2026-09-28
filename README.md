@@ -32,6 +32,7 @@ Shared CI topics:
 
 - [Integration tests](docs/ci/integration-tests.md)
 - [SonarQube](docs/ci/sonarqube.md)
+- [Composite actions](docs/ci/actions.md)
 
 ## CD
 

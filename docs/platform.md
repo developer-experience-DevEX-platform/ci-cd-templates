@@ -32,6 +32,10 @@ To cut a new version:
 2. Tag `vX.Y.Z` on that commit.
 3. Bump the Backstage skeleton and every documented caller together.
 
+Language CI jobs that repeat checkout and install call
+[composite actions](ci/actions.md) so those pins stay in one place.
+Callers do not pin the actions.
+
 Dependabot updates GitHub Actions in this repository weekly. That does
 not bump caller pins.
 

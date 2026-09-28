@@ -48,32 +48,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Run Hadolint
-        env:
-          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
-        run: docker run --rm -i hadolint/hadolint:v2.15.1 < "$DOCKERFILE_PATH"
+      - name: Lint Dockerfile
+        uses: ./.github/actions/hadolint
+        with:
+          dockerfile_path: ${{ inputs.dockerfile_path }}
 
   static-checks:
     name: Format & Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          python-version: ${{ inputs.python_version }}
-          version: "0.12.4"
-
-      - name: Install dependencies
-        working-directory: ${{ inputs.working_directory }}
-        run: uv sync --frozen
+          python_version: ${{ inputs.python_version }}
+          working_directory: ${{ inputs.working_directory }}
 
       - name: Check formatting
         working-directory: ${{ inputs.working_directory }}
@@ -90,19 +79,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          python-version: ${{ inputs.python_version }}
-          version: "0.12.4"
-
-      - name: Install dependencies
-        working-directory: ${{ inputs.working_directory }}
-        run: uv sync --frozen
+          python_version: ${{ inputs.python_version }}
+          working_directory: ${{ inputs.working_directory }}
 
       - name: Run unit tests
         working-directory: ${{ inputs.working_directory }}
@@ -120,18 +101,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Run Trivy dependency scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      - name: Scan dependencies
+        uses: ./.github/actions/trivy-fs
         with:
-          scan-type: fs
-          scan-ref: ${{ inputs.working_directory }}
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: 1
+          scan_ref: ${{ inputs.working_directory }}
 
   sast:
     name: SonarQube
@@ -156,43 +129,10 @@ jobs:
 
       - name: Provision SonarCloud project
         id: sonar-project
+        uses: ./.github/actions/sonar-provision
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
-          GITHUB_OWNER: ${{ github.repository_owner }}
-          GITHUB_REPO: ${{ github.event.repository.name }}
-        run: |
-          set -euo pipefail
-          org="${SONAR_ORGANIZATION:-}"
-          if [[ -z "$org" ]]; then
-            org="$(printf '%s' "${GITHUB_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          fi
-          key="$(printf '%s_%s' "${GITHUB_OWNER}" "${GITHUB_REPO}" | tr '[:upper:]' '[:lower:]')"
-          echo "organization=${org}" >> "$GITHUB_OUTPUT"
-          echo "key=${key}" >> "$GITHUB_OUTPUT"
-          echo "Using SonarCloud organization ${org} and project key ${key}"
-
-          search="$(curl -sS -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/projects/search?organization=${org}&projects=${key}")"
-          count="$(printf '%s' "${search}" | jq '.components | length')"
-          if [ "${count}" -gt 0 ]; then
-            echo "SonarCloud project ${key} already exists in ${org}"
-            exit 0
-          fi
-
-          http="$(curl -sS -o /tmp/sonar-create.json -w "%{http_code}" \
-            -u "${SONAR_TOKEN}:" -X POST \
-            "https://sonarcloud.io/api/projects/create" \
-            --data-urlencode "organization=${org}" \
-            --data-urlencode "project=${key}" \
-            --data-urlencode "name=${GITHUB_REPO}")"
-          if [ "${http}" = "200" ]; then
-            echo "Created SonarCloud project ${key}"
-            exit 0
-          fi
-          echo "Failed to create SonarCloud project ${key} (HTTP ${http})"
-          cat /tmp/sonar-create.json
-          exit 1
 
       - name: Analyze with SonarQube
         uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
@@ -223,19 +163,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          python-version: ${{ inputs.python_version }}
-          version: "0.12.4"
-
-      - name: Install dependencies
-        working-directory: ${{ inputs.working_directory }}
-        run: uv sync --frozen
+          python_version: ${{ inputs.python_version }}
+          working_directory: ${{ inputs.working_directory }}
 
       - name: Configure integration test variables
         if: inputs.integration_test_vars != '{}'
