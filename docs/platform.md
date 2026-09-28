@@ -7,15 +7,15 @@ summarized here so teams know they are provisioned, not hand-copied.
 
 ## Pinning
 
-Documented callers pin a git tag. The current release is `@v1.11.0`.
+Documented callers pin a git tag. The current release is `@v1.12.0`.
 That version covers Node.js CI, Python CI, Go CI, Frontend CI, static
 site release, container release, Kubernetes GitOps, and TechDocs
 publish. Lambda workflows are not in this release; do not call them
 from Backstage.
 
 ```yaml
-uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.11.0
-uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.11.0
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/nodejs-ci.yml@v1.12.0
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.12.0
 ```
 
 Do not follow `@main` for those workflows. A service under test

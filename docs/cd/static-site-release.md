@@ -48,7 +48,7 @@ permissions:
 
 jobs:
   ci:
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/frontend-ci.yml@v1.11.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/frontend-ci.yml@v1.12.0
     permissions:
       contents: read
     secrets: inherit
@@ -59,7 +59,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/static-site-release.yml@v1.11.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/static-site-release.yml@v1.12.0
 
   publish-docs:
     needs: ci
@@ -67,10 +67,10 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.11.0
+    uses: developer-experience-DevEX-platform/ci-cd-templates/.github/workflows/techdocs-publish.yml@v1.12.0
 ```
 
-Pin `@v1.11.0`.
+Pin `@v1.12.0`.
 
 The `if` on `release` is required. A skipped reusable-workflow job never
 runs the missing-variable check, so an unprovisioned repo stays green.
