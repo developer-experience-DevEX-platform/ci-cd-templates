@@ -1,16 +1,3 @@
-# Static Site Release
-#
-# Builds the Vite site and publishes that dist/ to S3, then invalidates
-# CloudFront. Call on push to main after CI. The caller skips this job
-# until STATIC_SITE_BUCKET is set; this workflow fails if required
-# variables are empty.
-#
-# Publish is push to main only. workflow_dispatch does not publish.
-#
-# Platform repository variables:
-#   AWS_REGION, AWS_RELEASE_ROLE_ARN, STATIC_SITE_BUCKET,
-#   CLOUDFRONT_DISTRIBUTION_ID
-#
 name: Static Site Release
 
 on:
@@ -85,6 +72,24 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: npm run build
 
+      - name: Require dist directory
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          if [[ ! -d dist ]]; then
+            echo "::error::npm run build did not produce a dist/ directory."
+            exit 1
+          fi
+
+      - name: Scan dist for secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working_directory }}/dist
+          scanners: secret
+          format: table
+          exit-code: 1
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
@@ -97,12 +102,7 @@ jobs:
         env:
           STATIC_SITE_BUCKET: ${{ vars.STATIC_SITE_BUCKET }}
         shell: bash
-        run: |
-          if [[ ! -d dist ]]; then
-            echo "::error::npm run build did not produce a dist/ directory."
-            exit 1
-          fi
-          aws s3 sync dist/ "s3://${STATIC_SITE_BUCKET}/" --delete
+        run: aws s3 sync dist/ "s3://${STATIC_SITE_BUCKET}/" --delete
 
       - name: Invalidate CloudFront
         env:

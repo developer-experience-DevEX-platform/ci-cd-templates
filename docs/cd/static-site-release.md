@@ -2,9 +2,10 @@
 
 Workflow: `.github/workflows/static-site-release.yml`
 
-Builds the Vite site and publishes **that** `dist/` to the service S3
-bucket, then invalidates CloudFront. The workflow does not run SonarQube
-or a browser test framework.
+Builds the Vite site, secret-scans **that** `dist/`, publishes it to the
+service S3 bucket, then invalidates CloudFront. The workflow does not
+run SonarQube, a CVE scan of `dist/`, or a browser test framework.
+Lockfile CVEs stay in Frontend CI.
 
 The caller skips this job until `STATIC_SITE_BUCKET` is set so the first
 scaffold commit stays green. Once the variable exists, this workflow
@@ -14,7 +15,7 @@ workflow.
 ## Job graph
 
 ```text
-push to main:   build  ->  s3 sync --delete  ->  CloudFront invalidate /*
+push to main:   build  ->  Trivy secret scan dist/  ->  s3 sync --delete  ->  CloudFront invalidate /*
 ```
 
 `workflow_dispatch` does not publish. Publish is push to `main` only.

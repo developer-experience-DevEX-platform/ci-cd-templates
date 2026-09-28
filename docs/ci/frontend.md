@@ -23,10 +23,11 @@ pull_request only:                 sonarqube  ->  build
 | Unit tests | yes | yes | yes | Tests pass and `coverage/lcov.info` exists |
 | Dependency scan | yes | yes | yes | Trivy filesystem; `CRITICAL` and `HIGH` fail |
 | SonarQube | no | yes | no | Quality gate after CI |
-| Build | no | yes | no | `npm run build` writes `dist/` |
+| Build | no | yes | no | Compile check only. `npm run build` must succeed. |
 
-`main` runs only the three CI jobs (Release calls this workflow). Publish
-is [static site release](../cd/static-site-release.md), not this file.
+`main` runs only the three CI jobs (Release calls this workflow). Release
+rebuilds `dist/`, secret-scans it, then publishes. That scan is
+[static site release](../cd/static-site-release.md), not this file.
 
 ## Commands
 
