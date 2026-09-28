@@ -1,7 +1,14 @@
 # Composite actions
 
-Reusable workflows call these from the same repository with a relative
-path. Callers still pin one workflow tag; they do not pin the action.
+Reusable workflows call these with a **full repository path and the
+same tag as the workflow**. A relative `./.github/actions/...` path is
+resolved in the **caller** repo, which does not have these actions.
+
+```yaml
+uses: developer-experience-DevEX-platform/ci-cd-templates/.github/actions/setup-npm@v1.12.0
+```
+
+Service callers still pin one workflow tag. They do not pin the action.
 
 | Action | What it does | Used by |
 | --- | --- | --- |
@@ -15,6 +22,9 @@ path. Callers still pin one workflow tag; they do not pin the action.
 Format, test, build, golangci-lint, Sonar scan args, and the `dist/`
 secret scan stay in the job. Container image scans stay in container
 release.
+
+When cutting a tag, bump every `/.github/actions/<name>@vX.Y.Z` in the
+reusable workflows to that tag, then tag the commit.
 
 ## Dependabot
 

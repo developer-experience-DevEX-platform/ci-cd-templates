@@ -44,7 +44,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Set up npm
-        uses: ./.github/actions/setup-npm
+        uses: developer-experience-DevEX-platform/ci-cd-templates/.github/actions/setup-npm@v1.12.0
         with:
           node_version: ${{ inputs.node_version }}
           working_directory: ${{ inputs.working_directory }}
@@ -64,7 +64,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Set up npm
-        uses: ./.github/actions/setup-npm
+        uses: developer-experience-DevEX-platform/ci-cd-templates/.github/actions/setup-npm@v1.12.0
         with:
           node_version: ${{ inputs.node_version }}
           working_directory: ${{ inputs.working_directory }}
@@ -86,7 +86,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Scan dependencies
-        uses: ./.github/actions/trivy-fs
+        uses: developer-experience-DevEX-platform/ci-cd-templates/.github/actions/trivy-fs@v1.12.0
         with:
           scan_ref: ${{ inputs.working_directory }}
 
@@ -113,7 +113,7 @@ jobs:
 
       - name: Provision SonarCloud project
         id: sonar-project
-        uses: ./.github/actions/sonar-provision
+        uses: developer-experience-DevEX-platform/ci-cd-templates/.github/actions/sonar-provision@v1.12.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
@@ -150,7 +150,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Set up npm
-        uses: ./.github/actions/setup-npm
+        uses: developer-experience-DevEX-platform/ci-cd-templates/.github/actions/setup-npm@v1.12.0
         with:
           node_version: ${{ inputs.node_version }}
           working_directory: ${{ inputs.working_directory }}

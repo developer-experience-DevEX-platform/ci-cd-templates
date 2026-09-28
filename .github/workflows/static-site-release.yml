@@ -55,7 +55,7 @@ jobs:
           fi
 
       - name: Set up npm
-        uses: ./.github/actions/setup-npm
+        uses: developer-experience-DevEX-platform/ci-cd-templates/.github/actions/setup-npm@v1.12.0
         with:
           node_version: ${{ inputs.node_version }}
           working_directory: ${{ inputs.working_directory }}
